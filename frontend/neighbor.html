@@ -94,69 +94,76 @@
         </main>
     </div>
 
-    <script>
-        let currentVendor = 'Huawei';
-        const map = L.map('map-neighbor').setView([48.4284, -71.0656], 13);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors',
-            maxZoom: 19
-        }).addTo(map);
+    let currentVendor = 'Huawei';
+const map = L.map('map-neighbor').setView([48.4284, -71.0656], 13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19
+}).addTo(map);
 
-        const sites = [
-            { site_id: 'MTL_5G_001', lat: 48.4284, lon: -71.0656, pci: 10 },
-            { site_id: 'MTL_5G_002', lat: 48.4350, lon: -71.0550, pci: 11 },
-            { site_id: 'MTL_5G_003', lat: 48.4200, lon: -71.0750, pci: 13 }
-        ];
+const sites = [
+    { site_id: 'MTL_5G_001', lat: 48.4284, lon: -71.0656, pci: 10 },
+    { site_id: 'MTL_5G_002', lat: 48.4350, lon: -71.0550, pci: 11 },
+    { site_id: 'MTL_5G_003', lat: 48.4200, lon: -71.0750, pci: 13 }
+];
 
-        sites.forEach(s => {
-            L.circleMarker([s.lat, s.lon], {
-                radius: 8, fillColor: '#06b6d4', color: '#fff', weight: 2, fillOpacity: 0.8
-            }).addTo(map).bindPopup(<b></b><br>PCI: );
+sites.forEach(s => {
+    L.circleMarker([s.lat, s.lon], {
+        radius: 8, fillColor: '#06b6d4', color: '#fff', weight: 2, fillOpacity: 0.8
+    }).addTo(map).bindPopup(`<b>${s.site_id}</b><br>PCI: ${s.pci}`);
+});
+
+document.getElementById('radius').addEventListener('input', (e) => {
+    document.getElementById('radius-value').innerText = e.target.value;
+});
+
+function setVendor(v, btn) {
+    currentVendor = v;
+    document.querySelectorAll('.vendor-btn').forEach(b => {
+        b.className = 'vendor-btn py-2 bg-slate-700 text-slate-300 text-xs font-medium rounded-md border border-slate-600 hover:bg-slate-600';
+    });
+    btn.className = 'vendor-btn py-2 bg-cyan-600 text-white text-xs font-medium rounded-md border border-cyan-500';
+}
+
+async function detectNeighbors() {
+    const source = document.getElementById('source-site').value;
+    const radius = document.getElementById('radius').value;
+    
+    console.log('Calling API with:', { source_site_id: source, detection_radius_m: parseFloat(radius), vendor: currentVendor });
+
+    try {
+        const response = await fetch('/api/v1/neighbors', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                source_site_id: source, 
+                detection_radius_m: parseFloat(radius), 
+                vendor: currentVendor 
+            })
         });
+        
+        console.log('Response status:', response.status);
+        const data = await response.json();
+        console.log('Response data:', data);
 
-        document.getElementById('radius').addEventListener('input', (e) => {
-            document.getElementById('radius-value').innerText = e.target.value;
+        document.getElementById('neighbor-count').innerText = data.neighbors.length;
+        document.getElementById('script-output').innerText = data.vendor_script;
+
+        const list = document.getElementById('neighbor-list');
+        list.innerHTML = '';
+        data.neighbors.forEach(n => {
+            list.innerHTML += `<div class="flex justify-between items-center bg-slate-800/50 rounded p-2"><span class="font-medium text-white">${n.site_id}</span><span class="font-mono text-xs text-cyan-400">${n.distance_m}m | PCI ${n.pci}</span></div>`;
         });
+    } catch (error) {
+        console.error('Error:', error);
+        document.getElementById('script-output').innerText = '# Erreur API: ' + error.message;
+    }
+}
 
-        function setVendor(v, btn) {
-            currentVendor = v;
-            document.querySelectorAll('.vendor-btn').forEach(b => {
-                b.className = 'vendor-btn py-2 bg-slate-700 text-slate-300 text-xs font-medium rounded-md border border-slate-600 hover:bg-slate-600';
-            });
-            btn.className = 'vendor-btn py-2 bg-cyan-600 text-white text-xs font-medium rounded-md border border-cyan-500';
-        }
-
-        async function detectNeighbors() {
-            const source = document.getElementById('source-site').value;
-            const radius = document.getElementById('radius').value;
-
-            try {
-                const response = await fetch('/api/v1/neighbors', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ source_site_id: source, detection_radius_m: parseFloat(radius), vendor: currentVendor })
-                });
-                const data = await response.json();
-
-                document.getElementById('neighbor-count').innerText = data.neighbors.length;
-                document.getElementById('script-output').innerText = data.vendor_script;
-
-                const list = document.getElementById('neighbor-list');
-                list.innerHTML = '';
-                data.neighbors.forEach(n => {
-                    list.innerHTML += <div class="flex justify-between items-center bg-slate-800/50 rounded p-2"><span class="font-medium text-white"></span><span class="font-mono text-xs text-cyan-400">m | PCI </span></div>;
-                });
-            } catch (error) {
-                console.error(error);
-                document.getElementById('script-output').innerText = '# Erreur API: ' + error.message;
-            }
-        }
-
-        function copyScript() {
-            const text = document.getElementById('script-output').innerText;
-            navigator.clipboard.writeText(text).then(() => alert('Script copié !'));
-        }
-    </script>
+function copyScript() {
+    const text = document.getElementById('script-output').innerText;
+    navigator.clipboard.writeText(text).then(() => alert('Script copié !'));
+}
     <script src="/navigation.js"></script>
 </body>
 </html>
