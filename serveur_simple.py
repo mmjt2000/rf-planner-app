@@ -35,6 +35,10 @@ async def serve_index():
 
 @app.get("/{page_name}")
 async def serve_page(page_name: str):
+    # Enlève l'extension .html si présente pour éviter le double .html
+    if page_name.endswith('.html'):
+        page_name = page_name[:-5]
+    
     file_path = os.path.join(FRONTEND_DIR, f"{page_name}.html")
     if os.path.exists(file_path):
         return FileResponse(file_path)
