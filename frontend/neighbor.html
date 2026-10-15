@@ -81,7 +81,7 @@
 <script>
     // Initialisation de la carte pour ce module
     const mapNeighbor = L.map('map-neighbor').setView([48.4284, -71.0656], 13);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
         maxZoom: 19
     }).addTo(mapNeighbor);
