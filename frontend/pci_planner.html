@@ -18,6 +18,7 @@
         body { font-family: 'Inter', sans-serif; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
     </style>
+<link rel="stylesheet" href="/navigation.css">
 </head>
 <body class="bg-slate-900 text-slate-200 h-screen flex flex-col overflow-hidden">
 
@@ -33,12 +34,7 @@
             </a>
             
             <!-- Menu des Modules -->
-            <nav class="hidden md:flex items-center gap-1 text-sm">
-                <a href="index.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Link Budget</a>
-                <a href="neighbor-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Voisinage</a>
-                <a href="pci-planner.html" class="px-3 py-1.5 rounded-md bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 font-medium">PCI / PRACH</a>
-                <span class="px-3 py-1.5 text-slate-600 cursor-not-allowed">Nominal</span>
-            </nav>
+            <nav id="main-nav" class="nav-container"></nav>
         </div>
         
         <div class="flex items-center gap-3">
@@ -231,5 +227,6 @@
             });
         }
     </script>
+<script src="/navigation.js"></script>
 </body>
 </html>
