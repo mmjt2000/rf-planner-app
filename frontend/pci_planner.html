@@ -174,7 +174,7 @@
             
             try {
                 // Appel à votre backend FastAPI
-                const response = await fetch('http://localhost:8000/api/v1/pci-planning', {
+                const response = await fetch('/api/v1/pci-planning', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ vendor: vendor })

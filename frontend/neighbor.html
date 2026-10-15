@@ -116,7 +116,7 @@
         document.getElementById('script-output').innerText = "# Calcul en cours...";
         
         try {
-            const response = await fetch('http://localhost:8000/api/v1/neighbors', {
+            const response = await fetch('/api/v1/neighbors', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

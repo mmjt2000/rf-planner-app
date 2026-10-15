@@ -20,6 +20,15 @@
         <div class="flex items-center gap-3">
             <div class="w-3 h-3 bg-cyan-500 rounded-full animate-pulse"></div>
             <h1 class="text-lg font-bold text-white">RF Planner <span class="text-slate-500 font-normal">/ Link Budget</span></h1>
+<nav class="flex items-center gap-1 text-sm">
+    <a href="/" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Link Budget</a>
+    <a href="/pci_planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">PCI / PRACH</a>
+    <a href="/neighbor.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Voisinage</a>
+    <a href="/nominal-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Nominal</a>
+    <a href="/scenario-simulator.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Simulateur</a>
+    <a href="/terrain-import.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Terrain</a>
+</nav>
+
         </div>
         <button class="px-4 py-2 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-500 rounded-lg">
             Exporter PDF
@@ -101,7 +110,7 @@
             document.getElementById('mapl-res').innerHTML = '<span class="text-cyan-400">Calcul...</span>';
             
             try {
-                const response = await fetch('http://localhost:8000/api/v1/link-budget', {
+                const response = await fetch('/api/v1/link-budget', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
