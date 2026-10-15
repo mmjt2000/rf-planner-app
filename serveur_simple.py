@@ -1,12 +1,17 @@
-# serveur_simple.py (Fichier unique, autonome, prêt à l'emploi)
+# serveur_simple.py - Fichier unique, autonome, prêt pour Render
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import math
+import httpx
+import urllib.parse
+import os
 
 app = FastAPI(title="RF Planner - Serveur Simplifié", version="1.0.0")
 
-# Autoriser le frontend à parler au backend
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,7 +20,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- MODÈLES DE DONNÉES ---
+# Servir les fichiers frontend
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+if os.path.exists(FRONTEND_DIR):
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
+@app.get("/")
+async def serve_index():
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "RF Planner API is running. Frontend not found."}
+
+@app.get("/{page_name}")
+async def serve_page(page_name: str):
+    file_path = os.path.join(FRONTEND_DIR, f"{page_name}.html")
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+    raise HTTPException(status_code=404, detail="Page not found")
+
+# ==========================================
+# MODÈLES PYDANTIC
+# ==========================================
 class LinkBudgetRequest(BaseModel):
     center_lat: float
     center_lon: float
@@ -33,7 +60,24 @@ class NeighborRequest(BaseModel):
 class PCIRequest(BaseModel):
     vendor: str = "Huawei"
 
-# --- DONNÉES SIMULÉES (MOCK) ---
+class NominalRequest(BaseModel):
+    zone_type: str = "Dense_Urban"
+
+class ScenarioRequest(BaseModel):
+    scenario_a: dict
+    scenario_b: dict
+    target_area_km2: float = 100.0
+    population: int = 150000
+
+class TerrainRequest(BaseModel):
+    min_lat: float
+    min_lon: float
+    max_lat: float
+    max_lon: float
+
+# ==========================================
+# DONNÉES SIMULÉES
+# ==========================================
 MOCK_SITES = [
     {"site_id": "MTL_5G_001", "lat": 48.4284, "lon": -71.0656, "pci": 10, "cell_id": 1},
     {"site_id": "MTL_5G_002", "lat": 48.4350, "lon": -71.0550, "pci": 11, "cell_id": 2},
@@ -41,7 +85,9 @@ MOCK_SITES = [
 ]
 MOCK_NEIGHBORS = {"MTL_5G_001": ["MTL_5G_002", "MTL_5G_003"]}
 
-# --- ENDPOINT 1 : LINK BUDGET ---
+# ==========================================
+# ENDPOINT 1 & 2 : LINK BUDGET
+# ==========================================
 @app.post("/api/v1/link-budget")
 async def calculate_link_budget(req: LinkBudgetRequest):
     tx_power = 43.0
@@ -59,9 +105,8 @@ async def calculate_link_budget(req: LinkBudgetRequest):
     hex_area = (3 * math.sqrt(3) / 2) * (radius_km ** 2)
     estimated_sites = math.ceil(req.target_area_km2 / (hex_area * 0.65))
     
-    # Génération d'un hexagone simplifié pour la démo
     lat, lon = req.center_lat, req.center_lon
-    r = radius_km * 0.009  # Conversion approximative en degrés
+    r = radius_km * 0.009
     
     hexagons = {
         "type": "FeatureCollection",
@@ -80,9 +125,16 @@ async def calculate_link_budget(req: LinkBudgetRequest):
         }]
     }
     
-    return {"mapl_db": round(mapl, 1), "radius_km": round(radius_km, 2), "estimated_sites": estimated_sites, "hexagons_geojson": hexagons}
+    return {
+        "mapl_db": round(mapl, 1),
+        "radius_km": round(radius_km, 2),
+        "estimated_sites": estimated_sites,
+        "hexagons_geojson": hexagons
+    }
 
-# --- ENDPOINT 2 : VOISINAGE ---
+# ==========================================
+# ENDPOINT 3 : VOISINAGE
+# ==========================================
 @app.post("/api/v1/neighbors")
 async def plan_neighbors(req: NeighborRequest):
     source = next((s for s in MOCK_SITES if s["site_id"] == req.source_site_id), None)
@@ -94,12 +146,14 @@ async def plan_neighbors(req: NeighborRequest):
     script = f"# Script {req.vendor}\nADD GNBRELATION: LocalCellId={source['cell_id']}, NrNeighborCellId=2, NrPci=11, Switch=ON;"
     return {"source_site": source, "neighbors": neighbors, "vendor_script": script}
 
-# --- ENDPOINT 3 : PCI PLANNING ---
+# ==========================================
+# ENDPOINT 4 : PCI PLANNING
+# ==========================================
 @app.post("/api/v1/pci-planning")
 async def plan_pci(req: PCIRequest):
     sites_result = []
     for i, site in enumerate(MOCK_SITES):
-        assigned_pci = (site["pci"] + (i * 3)) % 1008 # Simulation d'attribution sans conflit mod-3
+        assigned_pci = (site["pci"] + (i * 3)) % 1008
         sites_result.append({
             **site,
             "assigned_pci": assigned_pci,
@@ -115,13 +169,12 @@ async def plan_pci(req: PCIRequest):
         "conflicts": [],
         "stats": {"total_sites": len(sites_result), "unique_pcis": len(sites_result), "tacs_used": len(set(s["tac"] for s in sites_result))}
     }
-# --- ENDPOINT 4 : NOMINAL PLANNING ---
-class NominalRequest(BaseModel):
-    zone_type: str = "Dense_Urban" # Dense_Urban, Suburban, Rural
 
+# ==========================================
+# ENDPOINT 5 : NOMINAL PLANNING
+# ==========================================
 @app.post("/api/v1/nominal-planning")
 async def generate_nominal_plan(req: NominalRequest):
-    # Règles métier RF Senior : Paramètres nominaux par défaut selon la zone
     rules = {
         "Dense_Urban": {"height": 25, "mech_tilt": 6, "elec_tilt": 4, "power": 40, "azimuth_step": 120},
         "Suburban": {"height": 35, "mech_tilt": 3, "elec_tilt": 2, "power": 43, "azimuth_step": 120},
@@ -131,11 +184,9 @@ async def generate_nominal_plan(req: NominalRequest):
     rule = rules.get(req.zone_type, rules["Suburban"])
     nominal_sites = []
     
-    # Génération de 3 sites nominaux (simulation)
     base_azimuth = 0
     for i in range(3):
         site_id = f"MTL_5G_NOM_{i+1:03d}"
-        # Azimuth en étoile (0°, 120°, 240°)
         azimuth = (base_azimuth + (i * rule["azimuth_step"])) % 360
         
         nominal_sites.append({
@@ -150,7 +201,6 @@ async def generate_nominal_plan(req: NominalRequest):
             "antenna_type": "Massive MIMO 64T64R" if req.zone_type == "Dense_Urban" else "Standard 4T4R"
         })
     
-    # Génération du CSV pour export
     csv_lines = ["Site ID,Latitude,Longitude,Azimuth (°),Méca Tilt (°),Élec Tilt (°),Hauteur (m),Puissance (dBm),Type Antenne"]
     for s in nominal_sites:
         csv_lines.append(f"{s['site_id']},{s['lat']},{s['lon']},{s['azimuth_deg']},{s['mech_tilt_deg']},{s['elec_tilt_deg']},{s['height_m']},{s['tx_power_dbm']},{s['antenna_type']}")
@@ -160,13 +210,10 @@ async def generate_nominal_plan(req: NominalRequest):
         "csv_export": "\n".join(csv_lines),
         "zone_applied": req.zone_type
     }
-# --- ENDPOINT 5 : SIMULATEUR DE SCÉNARIOS ---
-class ScenarioRequest(BaseModel):
-    scenario_a: dict  # {"name": "...", "num_sites": 15, "band": "3500", "zone": "Dense_Urban"}
-    scenario_b: dict
-    target_area_km2: float = 100.0
-    population: int = 150000
 
+# ==========================================
+# ENDPOINT 6 : SIMULATEUR DE SCÉNARIOS
+# ==========================================
 @app.post("/api/v1/scenario-simulator")
 async def simulate_scenarios(req: ScenarioRequest):
     def calc_metrics(s, area, pop):
@@ -174,30 +221,22 @@ async def simulate_scenarios(req: ScenarioRequest):
         band = float(s["band"])
         zone = s["zone"]
         
-        # Rayon selon bande et zone (formules simplifiées mais réalistes)
         base_radius = {"Dense_Urban": 0.5, "Suburban": 1.2, "Rural": 3.0}
         r = base_radius.get(zone, 1.0) * (3500 / band) ** 0.5
         
-        # Couverture : surface hexagonale × nombre de sites / zone cible (max 98%)
         hex_area = (3 * math.sqrt(3) / 2) * (r ** 2)
         coverage_pct = min(98.0, (n * hex_area * 0.65 / area) * 100)
         
-        # Capacité : 5G NR ~ 1 Gbps par site en urbain dense (partagé)
         capacity_per_site = {"Dense_Urban": 1.0, "Suburban": 0.7, "Rural": 0.4}
         total_capacity_gbps = n * capacity_per_site.get(zone, 0.7)
         capacity_per_user_mbps = (total_capacity_gbps * 1000) / pop if pop > 0 else 0
         
-        # CAPEX : coût moyen par site (tour + radio + backhaul + installation)
         cost_per_site = {"Dense_Urban": 180000, "Suburban": 120000, "Rural": 90000}
         capex_usd = n * cost_per_site.get(zone, 120000)
-        
-        # OPEX annuel (énergie + maintenance + lease)
         opex_annual_usd = capex_usd * 0.12
         
-        # SINR moyen estimé (dégradé par densité)
-        sinr_db = 25 - (n / area) * 2  # Plus on densifie, plus l'interférence monte
+        sinr_db = 25 - (n / area) * 2
         
-        # Payback period (années) - hypothèse ARPU 15$/mois, 30% de pénétration
         arpu_monthly = 15
         revenue_annual = pop * 0.30 * arpu_monthly * 12
         payback_years = capex_usd / revenue_annual if revenue_annual > 0 else 99
@@ -219,7 +258,6 @@ async def simulate_scenarios(req: ScenarioRequest):
     metrics_a = calc_metrics(req.scenario_a, req.target_area_km2, req.population)
     metrics_b = calc_metrics(req.scenario_b, req.target_area_km2, req.population)
     
-    # Recommandation automatique
     winner = metrics_a if metrics_a["coverage_pct"] > metrics_b["coverage_pct"] else metrics_b
     recommendation = f"Le scénario '{winner['name']}' offre la meilleure couverture ({winner['coverage_pct']}%) avec un payback de {winner['payback_years']} ans."
     
@@ -230,15 +268,10 @@ async def simulate_scenarios(req: ScenarioRequest):
         "target_area_km2": req.target_area_km2,
         "population": req.population
     }
-import httpx
 
-# --- ENDPOINT 6 : IMPORT TERRAIN RÉEL (Overpass API) ---
-class TerrainRequest(BaseModel):
-    min_lat: float
-    min_lon: float
-    max_lat: float
-    max_lon: float
-
+# ==========================================
+# ENDPOINT 7 : IMPORT TERRAIN RÉEL (Mode démo)
+# ==========================================
 @app.post("/api/v1/terrain-import")
 async def import_real_terrain(req: TerrainRequest):
     import random
@@ -246,10 +279,7 @@ async def import_real_terrain(req: TerrainRequest):
     
     features = []
     
-    # Zone d'exclusion : Rivière Saguenay (approximation)
-    # Si un bâtiment tombe dans cette zone, on le déplace
     def is_in_river(lat, lon):
-        # Rivière Saguenay traverse approximativement entre ces coordonnées
         river_lat_min = 48.418
         river_lat_max = 48.435
         river_lon_min = -71.080
@@ -257,7 +287,6 @@ async def import_real_terrain(req: TerrainRequest):
         return (river_lat_min <= lat <= river_lat_max and 
                 river_lon_min <= lon <= river_lon_max)
     
-    # Générer des bâtiments simulés
     num_buildings = 150
     attempts = 0
     while len(features) < num_buildings and attempts < 500:
@@ -265,7 +294,6 @@ async def import_real_terrain(req: TerrainRequest):
         lat = random.uniform(req.min_lat, req.max_lat)
         lon = random.uniform(req.min_lon, req.max_lon)
         
-        # Exclure la rivière
         if is_in_river(lat, lon):
             continue
         
@@ -289,7 +317,6 @@ async def import_real_terrain(req: TerrainRequest):
             }
         })
     
-    # Forêts (exclure aussi la rivière)
     num_forests = 8
     attempts = 0
     while len([f for f in features if f['properties']['type'] == 'forest']) < num_forests and attempts < 100:
@@ -320,33 +347,14 @@ async def import_real_terrain(req: TerrainRequest):
             }
         })
     
-    print(f"✅ Mode démo amélioré: {len(features)} obstacles (rivière exclue)")
+    print(f"✅ Mode démo: {len(features)} obstacles générés")
     return {
         "type": "FeatureCollection",
         "features": features,
         "count": len(features),
-        "message": f"Mode démonstration : {len(features)} obstacles simulés (rivière exclue)."
+        "message": f"Mode démonstration : {len(features)} obstacles simulés."
     }
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import os
 
-# Configuration pour servir les fichiers HTML
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-
-# Monter le dossier frontend
-app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
-
-@app.get("/")
-async def serve_index():
-    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
-
-@app.get("/{page_name}")
-async def serve_page(page_name: str):
-    file_path = os.path.join(FRONTEND_DIR, f"{page_name}.html")
-    if os.path.exists(file_path):
-        return FileResponse(file_path)
-    raise HTTPException(status_code=404, detail="Page not found")
-def read_root():
-    return {"message": "✅ RF Planner Serveur Simplifié est en ligne !"}
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "message": "RF Planner API is running"}
