@@ -7,7 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <link rel="stylesheet" href="/navigation.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
         body { font-family: 'Inter', sans-serif; }
@@ -94,7 +93,8 @@
         </main>
     </div>
 
-    let currentVendor = 'Huawei';
+    <script>
+let currentVendor = 'Huawei';
 const map = L.map('map-neighbor').setView([48.4284, -71.0656], 13);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
@@ -164,6 +164,6 @@ function copyScript() {
     const text = document.getElementById('script-output').innerText;
     navigator.clipboard.writeText(text).then(() => alert('Script copié !'));
 }
-    <script src="/navigation.js"></script>
-</body>
+</script>
+    </body>
 </html>
