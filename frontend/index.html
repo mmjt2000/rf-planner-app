@@ -11,28 +11,29 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
         body { font-family: 'Inter', sans-serif; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .param-group { background: rgba(15, 23, 42, 0.5); border: 1px solid rgb(51, 65, 85); border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem; }
+        .param-title { font-size: 0.7rem; font-weight: 700; color: rgb(34, 211, 238); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+        input[type="range"] { width: 100%; }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-200 h-screen flex flex-col">
 
     <!-- Topbar -->
-    <header class="h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-6">
+    <header class="h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-6 shrink-0">
         <div class="flex items-center gap-3">
             <div class="w-3 h-3 bg-cyan-500 rounded-full animate-pulse"></div>
             <h1 class="text-lg font-bold text-white">RF Planner <span class="text-slate-500 font-normal">/ Link Budget</span></h1>
-<nav class="hidden md:flex items-center gap-1 text-sm ml-6">
-    <a href="/" class="px-3 py-1.5 rounded-md bg-cyan-600/20 text-cyan-400 border border-cyan-500/30">Link Budget</a>
-    <a href="/pci_planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">PCI / PRACH</a>
-    <a href="/neighbor.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">Voisinage</a>
-    <a href="/nominal-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">Nominal</a>
-    <a href="/scenario-simulator.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">Simulateur</a>
-    <a href="/terrain-import.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">Terrain</a>
-</nav>
-
-
+            <nav class="hidden md:flex items-center gap-1 text-sm ml-6">
+                <a href="/" class="px-3 py-1.5 rounded-md bg-cyan-600/20 text-cyan-400 border border-cyan-500/30">Link Budget</a>
+                <a href="/pci-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">PCI / PRACH</a>
+                <a href="/neighbor.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">Voisinage</a>
+                <a href="/nominal-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">Nominal</a>
+                <a href="/scenario-simulator.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">Simulateur</a>
+                <a href="/terrain-import.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700">Terrain</a>
+            </nav>
         </div>
-        <button class="px-4 py-2 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-500 rounded-lg">
-            Exporter PDF
+        <button onclick="exportPDF()" class="px-4 py-2 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-500 rounded-lg">
+            📄 Exporter PDF
         </button>
     </header>
 
@@ -40,52 +41,193 @@
     <div class="flex flex-1 overflow-hidden">
         
         <!-- Panneau de Configuration -->
-        <aside class="w-96 bg-slate-800 border-r border-slate-700 p-5 overflow-y-auto">
-            <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-3">Paramètres Radio</h3>
+        <aside class="w-[420px] bg-slate-800 border-r border-slate-700 p-5 overflow-y-auto shrink-0">
             
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 mb-1">Fréquence (MHz)</label>
-                    <select id="freq" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
-                        <option value="700">700 MHz</option>
-                        <option value="1800">1800 MHz</option>
-                        <option value="3500" selected>3500 MHz (5G)</option>
-                    </select>
-                </div>
+            <!-- PARAMETRES RADIO -->
+            <div class="param-group">
+                <div class="param-title">📻 Paramètres Radio</div>
                 
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 mb-1">Hauteur Antenne (m): <span id="h-val" class="text-white font-mono">30</span></label>
-                    <input type="range" id="height" min="10" max="60" value="30" class="w-full accent-cyan-500">
-                </div>
-                
-                <div>
-                    <label class="block text-xs font-medium text-slate-400 mb-1">Perte Clutter (dB): <span id="c-val" class="text-white font-mono">15</span></label>
-                    <input type="range" id="clutter" min="0" max="30" value="15" class="w-full accent-cyan-500">
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Fréquence (MHz)</label>
+                        <select id="freq" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
+                            <option value="700">700 MHz (LTE 700)</option>
+                            <option value="800">800 MHz (LTE 800)</option>
+                            <option value="900">900 MHz (2G/3G)</option>
+                            <option value="1800">1800 MHz (LTE 1800)</option>
+                            <option value="2100">2100 MHz (3G/LTE)</option>
+                            <option value="2600">2600 MHz (LTE 2600)</option>
+                            <option value="3500" selected>3500 MHz (5G n78)</option>
+                            <option value="26000">26 GHz (5G mmWave)</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">
+                            Hauteur Antenne (m): <span id="h-val" class="text-white font-mono">30</span>
+                        </label>
+                        <input type="range" id="height" min="10" max="60" value="30" class="w-full accent-cyan-500">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">
+                            Hauteur Mobile (m): <span id="hm-val" class="text-white font-mono">1.5</span>
+                        </label>
+                        <input type="range" id="mobile_h" min="1" max="10" step="0.5" value="1.5" class="w-full accent-cyan-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Environnement</label>
+                        <select id="env" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
+                            <option value="rural">Rural</option>
+                            <option value="suburban" selected>Suburbain</option>
+                            <option value="urban">Urbain</option>
+                            <option value="dense_urban">Urbain dense</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Modèle de propagation</label>
+                        <select id="model" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
+                            <option value="auto" selected>Auto (recommandé)</option>
+                            <option value="okumura_hata">Okumura-Hata (150-1500 MHz)</option>
+                            <option value="cost231_hata">COST-231 Hata (1500-2000 MHz)</option>
+                            <option value="cost231_wi">COST-231 Walfisch-Ikegami (> 2000 MHz)</option>
+                            <option value="itu_r_p1546">ITU-R P.1546 (rural)</option>
+                            <option value="itu_r_p2108">ITU-R P.2108 (mmWave)</option>
+                            <option value="fspl">FSPL (référence)</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
-            <!-- Résultat -->
-            <div class="mt-6 bg-slate-900/50 border border-cyan-500/30 rounded-lg p-4">
-                <h3 class="text-xs font-bold text-cyan-400 uppercase mb-3">Résultat</h3>
-                <div class="grid grid-cols-2 gap-4">
+            <!-- PARAMETRES TX/RX -->
+            <div class="param-group">
+                <div class="param-title">⚡ Chaîne TX / RX</div>
+                
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">
+                            Puissance TX (dBm): <span id="txp-val" class="text-white font-mono">43</span>
+                        </label>
+                        <input type="range" id="tx_power" min="20" max="60" value="43" class="w-full accent-cyan-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">
+                            Gain antenne TX (dBi): <span id="txg-val" class="text-white font-mono">18</span>
+                        </label>
+                        <input type="range" id="tx_gain" min="0" max="30" value="18" class="w-full accent-cyan-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">
+                            Sensibilité RX (dBm): <span id="rxs-val" class="text-white font-mono">-95</span>
+                        </label>
+                        <input type="range" id="rx_sens" min="-120" max="-70" value="-95" class="w-full accent-cyan-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">
+                            Perte Clutter (dB): <span id="c-val" class="text-white font-mono">15</span>
+                        </label>
+                        <input type="range" id="clutter" min="0" max="30" value="15" class="w-full accent-cyan-500">
+                    </div>
+                </div>
+            </div>
+
+            <!-- ZONE CIBLE -->
+            <div class="param-group">
+                <div class="param-title">🗺️ Zone cible</div>
+                
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">
+                            Surface à couvrir (km²): <span id="area-val" class="text-white font-mono">100</span>
+                        </label>
+                        <input type="range" id="area" min="10" max="500" value="100" class="w-full accent-cyan-500">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bouton Calculer -->
+            <button onclick="calculateLB()" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition-colors mb-4">
+                🔄 Calculer le Link Budget
+            </button>
+
+            <!-- RESULTAT DETAILLE -->
+            <div class="bg-slate-900/70 border border-cyan-500/30 rounded-lg p-4">
+                <h3 class="text-xs font-bold text-cyan-400 uppercase mb-3">📊 Résultat</h3>
+                
+                <!-- Modèle utilisé -->
+                <div class="mb-3 pb-3 border-b border-slate-700">
+                    <div class="text-xs text-slate-500 mb-1">Modèle utilisé</div>
+                    <div class="text-sm font-bold text-cyan-400 font-mono" id="model-res">--</div>
+                </div>
+
+                <!-- EIRP + MAPL -->
+                <div class="grid grid-cols-2 gap-3 mb-3 pb-3 border-b border-slate-700">
+                    <div>
+                        <div class="text-xs text-slate-500">EIRP</div>
+                        <div class="text-lg font-bold text-amber-400 font-mono" id="eirp-res">-- dBm</div>
+                    </div>
                     <div>
                         <div class="text-xs text-slate-500">MAPL</div>
-                        <div class="text-xl font-bold text-white font-mono" id="mapl-res">-- dB</div>
-                    </div>
-                    <div>
-                        <div class="text-xs text-slate-500">Rayon</div>
-                        <div class="text-xl font-bold text-emerald-400 font-mono" id="radius-res">-- km</div>
-                    </div>
-                    <div class="col-span-2 border-t border-slate-700 pt-3">
-                        <div class="text-xs text-slate-500">Sites estimés</div>
-                        <div class="text-2xl font-bold text-white font-mono" id="sites-res">--</div>
+                        <div class="text-lg font-bold text-white font-mono" id="mapl-res">-- dB</div>
                     </div>
                 </div>
-            </div>
 
-            <button onclick="calculateLB()" class="w-full mt-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg">
-                🔄 Calculer
-            </button>
+                <!-- Rayon + Aire -->
+                <div class="grid grid-cols-2 gap-3 mb-3 pb-3 border-b border-slate-700">
+                    <div>
+                        <div class="text-xs text-slate-500">Rayon cellule</div>
+                        <div class="text-lg font-bold text-emerald-400 font-mono" id="radius-res">-- km</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-500">Aire hexagone</div>
+                        <div class="text-lg font-bold text-purple-400 font-mono" id="hexarea-res">-- km²</div>
+                    </div>
+                </div>
+
+                <!-- Sites estimés -->
+                <div class="mb-3 pb-3 border-b border-slate-700">
+                    <div class="text-xs text-slate-500">Sites estimés</div>
+                    <div class="text-3xl font-bold text-white font-mono" id="sites-res">--</div>
+                </div>
+
+                <!-- Breakdown -->
+                <details class="text-xs">
+                    <summary class="cursor-pointer text-cyan-400 hover:text-cyan-300 font-semibold mb-2">
+                        🔍 Voir le détail du calcul
+                    </summary>
+                    <div class="space-y-1 text-slate-400 font-mono text-xs mt-2">
+                        <div class="flex justify-between">
+                            <span>Puissance TX</span>
+                            <span id="b-tx" class="text-white">-- dBm</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Gain antenne TX</span>
+                            <span id="b-txg" class="text-white">-- dBi</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Perte câble TX</span>
+                            <span id="b-txc" class="text-white">-- dB</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Sensibilité RX</span>
+                            <span id="b-rxs" class="text-white">-- dBm</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Marges totales</span>
+                            <span id="b-marg" class="text-white">-- dB</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Perte clutter</span>
+                            <span id="b-clut" class="text-white">-- dB</span>
+                        </div>
+                    </div>
+                </details>
+            </div>
         </aside>
 
         <!-- Carte -->
@@ -95,20 +237,35 @@
     </div>
 
     <script>
-        // Initialisation Leaflet
+        // ============================================
+        // INITIALISATION LEAFLET
+        // ============================================
         const map = L.map('map').setView([48.4284, -71.0656], 12);
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap',
             maxZoom: 19
         }).addTo(map);
 
-        // Appel API
+        let hexLayer = null;
+
+        // ============================================
+        // APPEL API
+        // ============================================
         async function calculateLB() {
             const freq = parseFloat(document.getElementById('freq').value);
             const height = parseFloat(document.getElementById('height').value);
+            const mobileH = parseFloat(document.getElementById('mobile_h').value);
+            const env = document.getElementById('env').value;
+            const model = document.getElementById('model').value;
+            const txPower = parseFloat(document.getElementById('tx_power').value);
+            const txGain = parseFloat(document.getElementById('tx_gain').value);
+            const rxSens = parseFloat(document.getElementById('rx_sens').value);
             const clutter = parseFloat(document.getElementById('clutter').value);
+            const area = parseFloat(document.getElementById('area').value);
             
-            document.getElementById('mapl-res').innerHTML = '<span class="text-cyan-400">Calcul...</span>';
+            // Feedback visuel
+            document.getElementById('mapl-res').innerHTML = '<span class="text-cyan-400">...</span>';
+            document.getElementById('sites-res').innerHTML = '<span class="text-cyan-400">Calcul...</span>';
             
             try {
                 const response = await fetch('/api/v1/link-budget', {
@@ -117,38 +274,101 @@
                     body: JSON.stringify({
                         center_lat: 48.4284,
                         center_lon: -71.0656,
+                        target_area_km2: area,
                         frequency_mhz: freq,
                         antenna_height_m: height,
-                        clutter_loss_db: clutter,
-                        propagation_model: "cost231",
-                        target_area_km2: 100.0
+                        mobile_height_m: mobileH,
+                        environment: env,
+                        propagation_model: model,
+                        tx_power_dbm: txPower,
+                        tx_antenna_gain_dbi: txGain,
+                        rx_sensitivity_dbm: rxSens,
+                        clutter_loss_db: clutter
                     })
                 });
 
                 const data = await response.json();
                 
+                // Modèle utilisé
+                document.getElementById('model-res').innerHTML = data.model || '--';
+                
+                // EIRP
+                document.getElementById('eirp-res').innerHTML = `${data.eirp_dbm} dBm`;
+                
+                // MAPL
                 document.getElementById('mapl-res').innerHTML = `${data.mapl_db} dB`;
+                
+                // Rayon
                 document.getElementById('radius-res').innerHTML = `${data.radius_km} km`;
+                
+                // Aire hexagone
+                document.getElementById('hexarea-res').innerHTML = `${data.hex_area_km2} km²`;
+                
+                // Sites estimés
                 document.getElementById('sites-res').innerHTML = `~ ${data.estimated_sites} sites`;
 
+                // Breakdown
+                if (data.breakdown) {
+                    document.getElementById('b-tx').textContent = `${data.breakdown.tx_power_dbm} dBm`;
+                    document.getElementById('b-txg').textContent = `${data.breakdown.tx_antenna_gain_dbi} dBi`;
+                    document.getElementById('b-txc').textContent = `${data.breakdown.tx_cable_loss_db} dB`;
+                    document.getElementById('b-rxs').textContent = `${data.breakdown.rx_sensitivity_dbm} dBm`;
+                    document.getElementById('b-marg').textContent = `${data.breakdown.margins_db} dB`;
+                    document.getElementById('b-clut').textContent = `${data.breakdown.clutter_loss_db} dB`;
+                }
+
+                // Supprimer les anciens hexagones
+                if (hexLayer) {
+                    map.removeLayer(hexLayer);
+                }
+
                 // Afficher les hexagones
-                L.geoJSON(data.hexagons_geojson, {
-                    style: { color: '#06b6d4', fillColor: '#06b6d4', fillOpacity: 0.15, weight: 1.5 }
+                hexLayer = L.geoJSON(data.hexagons_geojson, {
+                    style: { 
+                        color: '#06b6d4', 
+                        fillColor: '#06b6d4', 
+                        fillOpacity: 0.15, 
+                        weight: 2 
+                    }
                 }).addTo(map);
 
             } catch (error) {
                 console.error(error);
                 document.getElementById('mapl-res').innerHTML = '<span class="text-red-400">Erreur</span>';
+                document.getElementById('sites-res').innerHTML = '<span class="text-red-400">Erreur</span>';
             }
         }
 
-        // Listeners
-        document.getElementById('height').addEventListener('input', (e) => {
-            document.getElementById('h-val').innerText = e.target.value;
+        // ============================================
+        // LISTENERS SLIDERS
+        // ============================================
+        const sliders = [
+            { id: 'height', label: 'h-val', suffix: '' },
+            { id: 'mobile_h', label: 'hm-val', suffix: '' },
+            { id: 'tx_power', label: 'txp-val', suffix: '' },
+            { id: 'tx_gain', label: 'txg-val', suffix: '' },
+            { id: 'rx_sens', label: 'rxs-val', suffix: '' },
+            { id: 'clutter', label: 'c-val', suffix: '' },
+            { id: 'area', label: 'area-val', suffix: '' }
+        ];
+
+        sliders.forEach(s => {
+            document.getElementById(s.id).addEventListener('input', (e) => {
+                document.getElementById(s.label).innerText = e.target.value;
+            });
         });
-        document.getElementById('clutter').addEventListener('input', (e) => {
-            document.getElementById('c-val').innerText = e.target.value;
-        });
+
+        // ============================================
+        // EXPORT PDF (placeholder)
+        // ============================================
+        function exportPDF() {
+            alert('Export PDF - à implémenter (jsPDF + html2canvas)');
+        }
+
+        // ============================================
+        // CALCUL INITIAL
+        // ============================================
+        calculateLB();
     </script>
 </body>
 </html>
