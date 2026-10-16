@@ -14,6 +14,16 @@
         .param-group { background: rgba(15, 23, 42, 0.5); border: 1px solid rgb(51, 65, 85); border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem; }
         .param-title { font-size: 0.7rem; font-weight: 700; color: rgb(34, 211, 238); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
         input[type="range"] { width: 100%; }
+        .site-label {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            font-size: 9px;
+            font-weight: 700;
+            color: #ffffff;
+            text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 3px #000;
+            font-family: 'JetBrains Mono', monospace;
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-200 h-screen flex flex-col">
@@ -151,21 +161,51 @@
             </div>
 
             <!-- Bouton Calculer -->
-            <button onclick="calculateLB()" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition-colors mb-4">
+            <button onclick="calculateLB()" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition-colors mb-2">
                 🔄 Calculer le Link Budget
             </button>
+
+            <!-- Bouton Placer les sites -->
+            <button onclick="placeSites()" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg transition-colors mb-2">
+                📍 Placer les sites
+            </button>
+
+            <!-- Options d'affichage -->
+            <div class="bg-slate-900/50 border border-slate-700 rounded-lg p-3 mb-3">
+                <div class="text-xs font-bold text-slate-400 uppercase mb-2">Affichage</div>
+                <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer mb-1">
+                    <input type="checkbox" id="opt-labels" checked class="accent-cyan-500" onchange="toggleLabels()">
+                    Labels SITE_XXX
+                </label>
+                <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer mb-1">
+                    <input type="checkbox" id="opt-rings" class="accent-cyan-500" onchange="toggleRings()">
+                    Anneaux de couverture (0.779 km)
+                </label>
+                <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                    <input type="checkbox" id="opt-colors" checked class="accent-cyan-500" onchange="toggleColors()">
+                    Couleur par distance
+                </label>
+            </div>
+
+            <!-- Boutons Export -->
+            <div class="grid grid-cols-2 gap-2 mb-4">
+                <button onclick="exportCSV()" class="py-2 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded-lg transition-colors">
+                    📥 CSV
+                </button>
+                <button onclick="exportGeoJSON()" class="py-2 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded-lg transition-colors">
+                    🌍 GeoJSON
+                </button>
+            </div>
 
             <!-- RESULTAT DETAILLE -->
             <div class="bg-slate-900/70 border border-cyan-500/30 rounded-lg p-4">
                 <h3 class="text-xs font-bold text-cyan-400 uppercase mb-3">📊 Résultat</h3>
                 
-                <!-- Modèle utilisé -->
                 <div class="mb-3 pb-3 border-b border-slate-700">
                     <div class="text-xs text-slate-500 mb-1">Modèle utilisé</div>
                     <div class="text-sm font-bold text-cyan-400 font-mono" id="model-res">--</div>
                 </div>
 
-                <!-- EIRP + MAPL -->
                 <div class="grid grid-cols-2 gap-3 mb-3 pb-3 border-b border-slate-700">
                     <div>
                         <div class="text-xs text-slate-500">EIRP</div>
@@ -177,7 +217,6 @@
                     </div>
                 </div>
 
-                <!-- Rayon + Aire -->
                 <div class="grid grid-cols-2 gap-3 mb-3 pb-3 border-b border-slate-700">
                     <div>
                         <div class="text-xs text-slate-500">Rayon cellule</div>
@@ -189,13 +228,11 @@
                     </div>
                 </div>
 
-                <!-- Sites estimés -->
                 <div class="mb-3 pb-3 border-b border-slate-700">
                     <div class="text-xs text-slate-500">Sites estimés</div>
                     <div class="text-3xl font-bold text-white font-mono" id="sites-res">--</div>
                 </div>
 
-                <!-- Breakdown -->
                 <details class="text-xs">
                     <summary class="cursor-pointer text-cyan-400 hover:text-cyan-300 font-semibold mb-2">
                         🔍 Voir le détail du calcul
@@ -247,9 +284,28 @@
         }).addTo(map);
 
         let hexLayer = null;
+        let siteMarkersLayer = null;
+        let ringsLayer = null;
+        let labelsLayer = null;
+        window._lastSites = [];
+        window._lastRadius = 0.779;
+
+        // Couleur selon distance (vert proche → rouge loin)
+        function distanceToColor(distanceKm, maxKm) {
+            if (!maxKm || maxKm === 0) return '#10b981';
+            const ratio = Math.min(distanceKm / maxKm, 1);
+            // Interpolation HSL : 140 (vert) → 0 (rouge)
+            const hue = 140 - ratio * 140;
+            return `hsl(${hue}, 75%, 50%)`;
+        }
+
+        function getMaxDistance() {
+            if (!window._lastSites || window._lastSites.length === 0) return 1;
+            return Math.max(...window._lastSites.map(s => s.distance_from_center_km || 0));
+        }
 
         // ============================================
-        // APPEL API
+        // APPEL API - LINK BUDGET
         // ============================================
         async function calculateLB() {
             const freq = parseFloat(document.getElementById('freq').value);
@@ -263,7 +319,6 @@
             const clutter = parseFloat(document.getElementById('clutter').value);
             const area = parseFloat(document.getElementById('area').value);
             
-            // Feedback visuel
             document.getElementById('mapl-res').innerHTML = '<span class="text-cyan-400">...</span>';
             document.getElementById('sites-res').innerHTML = '<span class="text-cyan-400">Calcul...</span>';
             
@@ -289,25 +344,14 @@
 
                 const data = await response.json();
                 
-                // Modèle utilisé
                 document.getElementById('model-res').innerHTML = data.model || '--';
-                
-                // EIRP
                 document.getElementById('eirp-res').innerHTML = `${data.eirp_dbm} dBm`;
-                
-                // MAPL
                 document.getElementById('mapl-res').innerHTML = `${data.mapl_db} dB`;
-                
-                // Rayon
                 document.getElementById('radius-res').innerHTML = `${data.radius_km} km`;
-                
-                // Aire hexagone
                 document.getElementById('hexarea-res').innerHTML = `${data.hex_area_km2} km²`;
-                
-                // Sites estimés
                 document.getElementById('sites-res').innerHTML = `~ ${data.estimated_sites} sites`;
+                window._lastRadius = data.radius_km || 0.779;
 
-                // Breakdown
                 if (data.breakdown) {
                     document.getElementById('b-tx').textContent = `${data.breakdown.tx_power_dbm} dBm`;
                     document.getElementById('b-txg').textContent = `${data.breakdown.tx_antenna_gain_dbi} dBi`;
@@ -317,12 +361,10 @@
                     document.getElementById('b-clut').textContent = `${data.breakdown.clutter_loss_db} dB`;
                 }
 
-                // Supprimer les anciens hexagones
                 if (hexLayer) {
                     map.removeLayer(hexLayer);
                 }
 
-                // Afficher les hexagones
                 hexLayer = L.geoJSON(data.hexagons_geojson, {
                     style: { 
                         color: '#06b6d4', 
@@ -340,16 +382,213 @@
         }
 
         // ============================================
+        // PLACEMENT DES SITES (Module 3)
+        // ============================================
+        async function placeSites() {
+            const area = parseFloat(document.getElementById('area').value);
+            const radius = parseFloat(document.getElementById('radius-res').textContent) || 0.779;
+            
+            document.getElementById('sites-res').innerHTML = '<span class="text-cyan-400">Placement...</span>';
+            
+            try {
+                const response = await fetch('/api/v1/plan-sites', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        center_lat: 48.4284,
+                        center_lon: -71.0656,
+                        radius_km: radius,
+                        target_area_km2: area
+                    })
+                });
+
+                const data = await response.json();
+                
+                window._lastSites = data.sites || [];
+                window._lastRadius = radius;
+                
+                document.getElementById('sites-res').innerHTML = `
+                    ~ ${data.n_sites} sites
+                    <div class="text-xs text-slate-400 mt-1">
+                        Couverture : <span class="text-emerald-400">${data.coverage.coverage_pct}%</span>
+                        · Trous : <span class="text-amber-400">${data.coverage.holes_pct}%</span>
+                        · Overlaps : <span class="text-rose-400">${data.overlaps_count}</span>
+                    </div>
+                `;
+
+                // Nettoyer anciens layers
+                if (hexLayer) map.removeLayer(hexLayer);
+                if (siteMarkersLayer) map.removeLayer(siteMarkersLayer);
+                if (ringsLayer) map.removeLayer(ringsLayer);
+                if (labelsLayer) map.removeLayer(labelsLayer);
+
+                // Hexagones de fond
+                hexLayer = L.geoJSON(data.geojson, {
+                    style: { 
+                        color: '#10b981', 
+                        fillColor: '#10b981', 
+                        fillOpacity: 0.08, 
+                        weight: 1 
+                    }
+                }).addTo(map);
+
+                // Marqueurs + labels
+                siteMarkersLayer = L.layerGroup().addTo(map);
+                labelsLayer = L.layerGroup();
+                ringsLayer = L.layerGroup();
+                const maxDist = getMaxDistance();
+                const useColors = document.getElementById('opt-colors').checked;
+
+                data.sites.forEach(site => {
+                    const color = useColors ? distanceToColor(site.distance_from_center_km, maxDist) : '#10b981';
+                    
+                    L.circleMarker([site.lat, site.lon], {
+                        radius: 5,
+                        fillColor: color,
+                        color: '#ffffff',
+                        weight: 1,
+                        opacity: 1,
+                        fillOpacity: 0.9
+                    })
+                    .bindPopup(`<b>${site.site_id}</b><br>Lat: ${site.lat}<br>Lon: ${site.lon}<br>Distance: ${site.distance_from_center_km} km`)
+                    .addTo(siteMarkersLayer);
+
+                    // Label SITE_XXX
+                    L.marker([site.lat, site.lon], {
+                        icon: L.divIcon({
+                            className: 'site-label',
+                            html: site.site_id.replace('SITE_', ''),
+                            iconSize: [24, 12],
+                            iconAnchor: [12, -6]
+                        }),
+                        interactive: false
+                    }).addTo(labelsLayer);
+
+                    // Anneau de couverture
+                    L.circle([site.lat, site.lon], {
+                        radius: radius * 1000,
+                        color: color,
+                        weight: 1,
+                        opacity: 0.4,
+                        fill: false
+                    }).addTo(ringsLayer);
+                });
+
+                // Afficher selon les options
+                if (document.getElementById('opt-labels').checked) labelsLayer.addTo(map);
+                if (document.getElementById('opt-rings').checked) ringsLayer.addTo(map);
+
+                map.fitBounds(hexLayer.getBounds());
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('sites-res').innerHTML = '<span class="text-red-400">Erreur placement</span>';
+            }
+        }
+
+        // ============================================
+        // TOGGLES AFFICHAGE
+        // ============================================
+        function toggleLabels() {
+            if (!labelsLayer) return;
+            if (document.getElementById('opt-labels').checked) {
+                labelsLayer.addTo(map);
+            } else {
+                map.removeLayer(labelsLayer);
+            }
+        }
+
+        function toggleRings() {
+            if (!ringsLayer) return;
+            if (document.getElementById('opt-rings').checked) {
+                ringsLayer.addTo(map);
+            } else {
+                map.removeLayer(ringsLayer);
+            }
+        }
+
+        function toggleColors() {
+            if (!window._lastSites || window._lastSites.length === 0) return;
+            // Re-dessiner les marqueurs
+            if (siteMarkersLayer) map.removeLayer(siteMarkersLayer);
+            siteMarkersLayer = L.layerGroup().addTo(map);
+            const maxDist = getMaxDistance();
+            const useColors = document.getElementById('opt-colors').checked;
+
+            window._lastSites.forEach(site => {
+                const color = useColors ? distanceToColor(site.distance_from_center_km, maxDist) : '#10b981';
+                L.circleMarker([site.lat, site.lon], {
+                    radius: 5,
+                    fillColor: color,
+                    color: '#ffffff',
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.9
+                })
+                .bindPopup(`<b>${site.site_id}</b><br>Lat: ${site.lat}<br>Lon: ${site.lon}<br>Distance: ${site.distance_from_center_km} km`)
+                .addTo(siteMarkersLayer);
+            });
+        }
+
+        // ============================================
+        // EXPORT CSV
+        // ============================================
+        function exportCSV() {
+            if (!window._lastSites || window._lastSites.length === 0) {
+                alert('Aucun site à exporter. Cliquez d\'abord sur "📍 Placer les sites".');
+                return;
+            }
+            const headers = ['site_id', 'lat', 'lon', 'distance_from_center_km'];
+            const rows = window._lastSites.map(s => [s.site_id, s.lat, s.lon, s.distance_from_center_km]);
+            const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sites_${new Date().toISOString().slice(0,10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // ============================================
+        // EXPORT GEOJSON
+        // ============================================
+        function exportGeoJSON() {
+            if (!window._lastSites || window._lastSites.length === 0) {
+                alert('Aucun site à exporter. Cliquez d\'abord sur "📍 Placer les sites".');
+                return;
+            }
+            const geojson = {
+                type: 'FeatureCollection',
+                features: window._lastSites.map(s => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+                    properties: {
+                        site_id: s.site_id,
+                        distance_from_center_km: s.distance_from_center_km
+                    }
+                }))
+            };
+            const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sites_${new Date().toISOString().slice(0,10)}.geojson`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // ============================================
         // LISTENERS SLIDERS
         // ============================================
         const sliders = [
-            { id: 'height', label: 'h-val', suffix: '' },
-            { id: 'mobile_h', label: 'hm-val', suffix: '' },
-            { id: 'tx_power', label: 'txp-val', suffix: '' },
-            { id: 'tx_gain', label: 'txg-val', suffix: '' },
-            { id: 'rx_sens', label: 'rxs-val', suffix: '' },
-            { id: 'clutter', label: 'c-val', suffix: '' },
-            { id: 'area', label: 'area-val', suffix: '' }
+            { id: 'height', label: 'h-val' },
+            { id: 'mobile_h', label: 'hm-val' },
+            { id: 'tx_power', label: 'txp-val' },
+            { id: 'tx_gain', label: 'txg-val' },
+            { id: 'rx_sens', label: 'rxs-val' },
+            { id: 'clutter', label: 'c-val' },
+            { id: 'area', label: 'area-val' }
         ];
 
         sliders.forEach(s => {

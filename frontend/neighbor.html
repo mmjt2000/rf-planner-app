@@ -21,8 +21,14 @@
                 <div class="w-2.5 h-2.5 bg-cyan-500 rounded-full animate-pulse"></div>
                 RF Planner
             </a>
-            <nav class="hidden md:flex items-center gap-1 text-sm"><a href="/" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Link Budget</a><a href="/pci_planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">PCI / PRACH</a><a href="/neighbor.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Voisinage</a><a href="/nominal-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Nominal</a><a href="/scenario-simulator.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Simulateur</a><a href="/terrain-import.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Terrain</a></nav>
-            
+            <nav class="hidden md:flex items-center gap-1 text-sm">
+                <a href="/" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Link Budget</a>
+                <a href="/pci_planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">PCI / PRACH</a>
+                <a href="/neighbor.html" class="px-3 py-1.5 rounded-md bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 transition">Voisinage</a>
+                <a href="/nominal-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Nominal</a>
+                <a href="/scenario-simulator.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Simulateur</a>
+                <a href="/terrain-import.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Terrain</a>
+            </nav>
         </div>
         <div class="flex items-center gap-3">
             <span class="text-xs text-slate-500">Projet: <span class="text-slate-300 font-medium">Chicoutimi 5G</span></span>
@@ -36,21 +42,26 @@
                     <span class="text-cyan-400">📡</span> Planification de Voisinage
                 </h2>
                 <p class="text-xs text-slate-400 mt-1">Détection automatique et export multi-vendor</p>
+                <p class="text-xs text-slate-500 mt-2">
+                    <span id="sites-loaded">0</span> sites chargés depuis le module Link Budget
+                </p>
             </div>
 
             <div class="p-5 space-y-5 flex-1">
                 <div>
                     <label class="block text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2">Site Source</label>
                     <select id="source-site" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
-                        <option value="MTL_5G_001">MTL_5G_001 (PCI 10)</option>
-                        <option value="MTL_5G_002" selected>MTL_5G_002 (PCI 11)</option>
-                        <option value="MTL_5G_003">MTL_5G_003 (PCI 13)</option>
+                        <option value="">Chargement...</option>
                     </select>
                 </div>
 
                 <div>
-                    <label class="block text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2">Rayon de détection : <span id="radius-value">2000</span> m</label>
-                    <input type="range" id="radius" min="500" max="5000" step="100" value="2000" class="w-full accent-cyan-500">
+                    <label class="block text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2">Rayon de détection : <span id="radius-value">5000</span> m</label>
+                    <input type="range" id="radius" min="500" max="15000" step="500" value="5000" class="w-full accent-cyan-500">
+                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                        <span>500 m</span>
+                        <span>15 km</span>
+                    </div>
                 </div>
 
                 <div>
@@ -70,7 +81,8 @@
 
                 <div class="bg-slate-900/50 border border-slate-700 rounded-lg p-4">
                     <h3 class="text-xs font-bold text-emerald-400 uppercase mb-3">Voisins Détectés <span id="neighbor-count" class="text-white">0</span></h3>
-                    <div id="neighbor-list" class="space-y-2 text-sm text-slate-300">
+                    <div id="neighbor-summary" class="text-xs mb-3"></div>
+                    <div id="neighbor-list" class="space-y-2 text-sm text-slate-300 max-h-80 overflow-y-auto">
                         <p class="text-slate-500 text-xs">Lancez la détection pour voir les résultats.</p>
                     </div>
                 </div>
@@ -83,7 +95,7 @@
                             Copier
                         </button>
                     </div>
-                    <pre id="script-output" class="text-xs font-mono text-green-400 overflow-x-auto whitespace-pre-wrap break-all max-h-48"># En attente de génération...</pre>
+                    <pre id="script-output" class="text-xs font-mono text-green-400 overflow-x-auto whitespace-pre-wrap break-all max-h-64"># En attente de génération...</pre>
                 </div>
             </div>
         </aside>
@@ -95,23 +107,74 @@
 
     <script>
 let currentVendor = 'Huawei';
-const map = L.map('map-neighbor').setView([48.4284, -71.0656], 13);
+let allSites = [];
+let sitesLayer = L.layerGroup();
+let neighborLayer = L.layerGroup();
+let sourceMarker = null;
+
+const map = L.map('map-neighbor').setView([48.4284, -71.0656], 12);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
     maxZoom: 19
 }).addTo(map);
 
-const sites = [
-    { site_id: 'MTL_5G_001', lat: 48.4284, lon: -71.0656, pci: 10 },
-    { site_id: 'MTL_5G_002', lat: 48.4350, lon: -71.0550, pci: 11 },
-    { site_id: 'MTL_5G_003', lat: 48.4200, lon: -71.0750, pci: 13 }
-];
+sitesLayer.addTo(map);
+neighborLayer.addTo(map);
 
-sites.forEach(s => {
-    L.circleMarker([s.lat, s.lon], {
-        radius: 8, fillColor: '#06b6d4', color: '#fff', weight: 2, fillOpacity: 0.8
-    }).addTo(map).bindPopup(`<b>${s.site_id}</b><br>PCI: ${s.pci}`);
-});
+// ============================================
+// CHARGER LES SITES DEPUIS LE BACKEND
+// ============================================
+async function loadSites() {
+    try {
+        const response = await fetch('/api/v1/sites');
+        const data = await response.json();
+
+        allSites = data.sites || [];
+        document.getElementById('sites-loaded').innerText = allSites.length;
+
+        if (allSites.length === 0) {
+            document.getElementById('source-site').innerHTML =
+                '<option value="">⚠️ Aucun site. Allez dans Link Budget → Placer les sites</option>';
+            return;
+        }
+
+        // Remplir le dropdown
+        const select = document.getElementById('source-site');
+        select.innerHTML = '';
+        allSites.forEach((s, i) => {
+            const opt = document.createElement('option');
+            opt.value = s.site_id;
+            opt.text = `${s.site_id} (PCI ${s.pci}, TAC ${s.tac})`;
+            if (i === 0) opt.selected = true;
+            select.appendChild(opt);
+        });
+
+        // Afficher les sites sur la carte (gris par défaut)
+        sitesLayer.clearLayers();
+        allSites.forEach(s => {
+            L.circleMarker([s.lat, s.lon], {
+                radius: 5,
+                fillColor: '#64748b',
+                color: '#fff',
+                weight: 1,
+                fillOpacity: 0.7
+            })
+            .bindPopup(`<b>${s.site_id}</b><br>PCI: ${s.pci}<br>TAC: ${s.tac}`)
+            .addTo(sitesLayer);
+        });
+
+        // Fit bounds
+        if (allSites.length > 0) {
+            const bounds = L.latLngBounds(allSites.map(s => [s.lat, s.lon]));
+            map.fitBounds(bounds, { padding: [30, 30] });
+        }
+
+    } catch (error) {
+        console.error('Erreur chargement sites:', error);
+        document.getElementById('source-site').innerHTML =
+            '<option value="">❌ Erreur API</option>';
+    }
+}
 
 document.getElementById('radius').addEventListener('input', (e) => {
     document.getElementById('radius-value').innerText = e.target.value;
@@ -125,35 +188,167 @@ function setVendor(v, btn) {
     btn.className = 'vendor-btn py-2 bg-cyan-600 text-white text-xs font-medium rounded-md border border-cyan-500';
 }
 
+// ============================================
+// BADGE DE CONFLIT
+// ============================================
+function getConflictBadge(neighbor) {
+    const c = neighbor.conflict || 'OK';
+    const msg = neighbor.conflict_msg || '';
+
+    if (c === 'OK') {
+        return '<span class="text-emerald-400 text-xs">✓ OK</span>';
+    } else if (c === 'CRITICAL') {
+        return `<span class="text-rose-400 text-xs font-bold">❌ ${msg}</span>`;
+    } else if (c === 'HIGH') {
+        return `<span class="text-amber-400 text-xs font-bold">⚠️ ${msg}</span>`;
+    } else if (c === 'MEDIUM') {
+        return `<span class="text-yellow-400 text-xs">⚠️ ${msg}</span>`;
+    }
+    return '';
+}
+
+// ============================================
+// COULEUR MARQUEUR SELON CONFLIT
+// ============================================
+function getNeighborColor(neighbor) {
+    const c = neighbor.conflict || 'OK';
+    if (c === 'OK') return '#10b981';        // vert
+    if (c === 'MEDIUM') return '#eab308';    // jaune
+    if (c === 'HIGH') return '#f59e0b';      // ambre
+    if (c === 'CRITICAL') return '#ef4444';  // rouge
+    return '#10b981';
+}
+
+// ============================================
+// DÉTECTION DES VOISINS
+// ============================================
 async function detectNeighbors() {
     const source = document.getElementById('source-site').value;
     const radius = document.getElementById('radius').value;
-    
-    console.log('Calling API with:', { source_site_id: source, detection_radius_m: parseFloat(radius), vendor: currentVendor });
+
+    if (!source) {
+        alert('Aucun site source sélectionné.');
+        return;
+    }
 
     try {
         const response = await fetch('/api/v1/neighbors', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                source_site_id: source, 
-                detection_radius_m: parseFloat(radius), 
-                vendor: currentVendor 
+            body: JSON.stringify({
+                source_site_id: source,
+                detection_radius_m: parseFloat(radius),
+                vendor: currentVendor
             })
         });
-        
-        console.log('Response status:', response.status);
+
         const data = await response.json();
-        console.log('Response data:', data);
 
         document.getElementById('neighbor-count').innerText = data.neighbors.length;
         document.getElementById('script-output').innerText = data.vendor_script;
 
+        // Résumé en haut
+        const summary = document.getElementById('neighbor-summary');
+        if (data.summary) {
+            const okPart = `<span class="text-emerald-400">✅ ${data.summary.ok} OK</span>`;
+            const conflictPart = data.summary.conflicts > 0
+                ? ` · <span class="text-rose-400">⚠️ ${data.summary.conflicts} conflits</span>`
+                : '';
+            summary.innerHTML = okPart + conflictPart;
+        }
+
+        // Liste des voisins
         const list = document.getElementById('neighbor-list');
         list.innerHTML = '';
-        data.neighbors.forEach(n => {
-            list.innerHTML += `<div class="flex justify-between items-center bg-slate-800/50 rounded p-2"><span class="font-medium text-white">${n.site_id}</span><span class="font-mono text-xs text-cyan-400">${n.distance_m}m | PCI ${n.pci}</span></div>`;
-        });
+        if (data.neighbors.length === 0) {
+            list.innerHTML = '<p class="text-slate-500 text-xs">Aucun voisin dans ce rayon.</p>';
+        } else {
+            data.neighbors.forEach(n => {
+                const badge = getConflictBadge(n);
+                const borderColor = n.conflict === 'OK' ? 'border-slate-700' :
+                                    n.conflict === 'CRITICAL' ? 'border-rose-500/50' :
+                                    n.conflict === 'HIGH' ? 'border-amber-500/50' :
+                                    'border-yellow-500/50';
+
+                list.innerHTML += `
+                    <div class="flex justify-between items-center bg-slate-800/50 border ${borderColor} rounded p-2">
+                        <span class="font-medium text-white">${n.site_id}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="font-mono text-xs text-cyan-400">${n.distance_m}m | PCI ${n.pci}</span>
+                            ${badge}
+                        </div>
+                    </div>`;
+            });
+        }
+
+        // ============================================
+        // MISE À JOUR DE LA CARTE
+        // ============================================
+        neighborLayer.clearLayers();
+
+        if (sourceMarker) {
+            map.removeLayer(sourceMarker);
+            sourceMarker = null;
+        }
+
+        const src = allSites.find(s => s.site_id === source);
+        if (src) {
+            // Marqueur source (grand, rouge)
+            sourceMarker = L.circleMarker([src.lat, src.lon], {
+                radius: 12,
+                fillColor: '#ef4444',
+                color: '#fff',
+                weight: 3,
+                fillOpacity: 1
+            })
+            .bindPopup(`<b>🎯 SOURCE : ${src.site_id}</b><br>PCI: ${src.pci}`)
+            .addTo(map);
+
+            // Cercle du rayon de détection
+            L.circle([src.lat, src.lon], {
+                radius: parseFloat(radius),
+                color: '#06b6d4',
+                weight: 1,
+                opacity: 0.4,
+                fill: true,
+                fillColor: '#06b6d4',
+                fillOpacity: 0.05
+            }).addTo(neighborLayer);
+
+            // Lignes + marqueurs des voisins
+            data.neighbors.forEach(n => {
+                const neighbor = allSites.find(s => s.site_id === n.site_id);
+                if (!neighbor) return;
+
+                const color = getNeighborColor(n);
+
+                // Ligne
+                L.polyline([[src.lat, src.lon], [neighbor.lat, neighbor.lon]], {
+                    color: color,
+                    weight: 2,
+                    opacity: 0.7,
+                    dashArray: n.conflict === 'OK' ? null : '5,5'
+                }).addTo(neighborLayer);
+
+                // Marqueur voisin
+                L.circleMarker([neighbor.lat, neighbor.lon], {
+                    radius: 8,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 2,
+                    fillOpacity: 0.9
+                })
+                .bindPopup(`
+                    <b>${neighbor.site_id}</b><br>
+                    Distance: ${n.distance_m} m<br>
+                    PCI: ${neighbor.pci}<br>
+                    TAC: ${neighbor.tac}<br>
+                    ${n.conflict !== 'OK' ? `<span style="color:#ef4444;font-weight:bold;">⚠️ ${n.conflict_msg}</span>` : '<span style="color:#10b981;">✓ OK</span>'}
+                `)
+                .addTo(neighborLayer);
+            });
+        }
+
     } catch (error) {
         console.error('Error:', error);
         document.getElementById('script-output').innerText = '# Erreur API: ' + error.message;
@@ -164,6 +359,9 @@ function copyScript() {
     const text = document.getElementById('script-output').innerText;
     navigator.clipboard.writeText(text).then(() => alert('Script copié !'));
 }
+
+// Chargement au démarrage
+loadSites();
 </script>
     </body>
 </html>

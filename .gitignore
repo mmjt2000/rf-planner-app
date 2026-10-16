@@ -34,3 +34,12 @@ Thumbs.db
 
 # Legacy
 backend_old/
+
+# Backups
+*_BACKUP*.html
+*_BACKUP*.py
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
