@@ -1,4 +1,4 @@
-# serveur_simple.py - Fichier unique, autonome, prêt pour Render
+﻿# serveur_simple.py - Fichier unique, autonome, prêt pour Render
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import math
 import httpx
+import propagation
 import urllib.parse
 import os
 
@@ -48,13 +49,37 @@ async def serve_page(page_name: str):
 # MODÈLES PYDANTIC
 # ==========================================
 class LinkBudgetRequest(BaseModel):
+    # Zone cible
     center_lat: float
     center_lon: float
-    frequency_mhz: float
-    antenna_height_m: float
-    clutter_loss_db: float
-    propagation_model: str
     target_area_km2: float
+    
+    # Parametres radio
+    frequency_mhz: float = 3500.0
+    bandwidth_mhz: float = 100.0
+    antenna_height_m: float = 30.0
+    mobile_height_m: float = 1.5
+    
+    # Parametres TX
+    tx_power_dbm: float = 43.0
+    tx_antenna_gain_dbi: float = 18.0
+    tx_cable_loss_db: float = 2.0
+    
+    # Parametres RX
+    rx_sensitivity_dbm: float = -95.0
+    rx_antenna_gain_dbi: float = 0.0
+    rx_cable_loss_db: float = 0.0
+    
+    # Marges
+    interference_margin_db: float = 3.0
+    shadowing_margin_db: float = 8.0
+    body_loss_db: float = 0.0
+    
+    # Environnement
+    environment: str = "suburban"
+    propagation_model: str = "auto"
+    clutter_loss_db: float = 0.0
+    overlap_factor: float = 0.65
 
 class NeighborRequest(BaseModel):
     source_site_id: str
@@ -94,48 +119,95 @@ MOCK_NEIGHBORS = {"MTL_5G_001": ["MTL_5G_002", "MTL_5G_003"]}
 # ==========================================
 @app.post("/api/v1/link-budget")
 async def calculate_link_budget(req: LinkBudgetRequest):
-    tx_power = 43.0
-    rx_sensitivity = -95.0
-    antenna_gain = 18.0 if req.frequency_mhz > 2000 else 16.0
-    margin = 11.0
-    
-    mapl = tx_power + antenna_gain - rx_sensitivity - margin - req.clutter_loss_db
-    
-    if req.propagation_model == "cost231":
-        radius_km = max(0.2, (mapl - 120) / 40)
+    """
+    Link Budget reel avec modeles de propagation ITU-R / COST-231
+    """
+    # 1. Selection du modele
+    if req.propagation_model == "auto":
+        model = propagation.select_best_model(req.frequency_mhz, req.environment)
     else:
-        radius_km = max(0.5, (mapl - 110) / 35)
-        
-    hex_area = (3 * math.sqrt(3) / 2) * (radius_km ** 2)
-    estimated_sites = math.ceil(req.target_area_km2 / (hex_area * 0.65))
+        model = req.propagation_model
     
+    # 2. Calcul MAPL
+    mapl_result = propagation.calculate_mapl(
+        tx_power_dbm=req.tx_power_dbm,
+        tx_antenna_gain_dbi=req.tx_antenna_gain_dbi,
+        tx_cable_loss_db=req.tx_cable_loss_db,
+        rx_antenna_gain_dbi=req.rx_antenna_gain_dbi,
+        rx_cable_loss_db=req.rx_cable_loss_db,
+        rx_sensitivity_dbm=req.rx_sensitivity_dbm,
+        interference_margin_db=req.interference_margin_db,
+        shadowing_margin_db=req.shadowing_margin_db,
+        body_loss_db=req.body_loss_db
+    )
+    
+    mapl_db = mapl_result["mapl_db"] - req.clutter_loss_db
+    
+    # 3. Calcul rayon
+    radius_km = propagation.calculate_radius_km(
+        mapl_db=mapl_db,
+        freq_mhz=req.frequency_mhz,
+        hb_m=req.antenna_height_m,
+        hm_m=req.mobile_height_m,
+        model=model,
+        environment=req.environment
+    )
+    
+    # 4. Estimation nb sites
+    sites_result = propagation.estimate_sites_hexagonal(
+        target_area_km2=req.target_area_km2,
+        radius_km=radius_km,
+        overlap_factor=req.overlap_factor
+    )
+    
+    # 5. Generation hexagones
     lat, lon = req.center_lat, req.center_lon
     r = radius_km * 0.009
+    import math as m
     
-    hexagons = {
-        "type": "FeatureCollection",
-        "features": [{
+    def make_hex(center_lat, center_lon, radius):
+        return {
             "type": "Feature",
             "geometry": {
                 "type": "Polygon",
                 "coordinates": [[
-                    [lon, lat + r], [lon + r*0.866, lat + r*0.5],
-                    [lon + r*0.866, lat - r*0.5], [lon, lat - r],
-                    [lon - r*0.866, lat - r*0.5], [lon - r*0.866, lat + r*0.5],
-                    [lon, lat + r]
+                    [center_lon, center_lat + radius],
+                    [center_lon + radius * 0.866, center_lat + radius * 0.5],
+                    [center_lon + radius * 0.866, center_lat - radius * 0.5],
+                    [center_lon, center_lat - radius],
+                    [center_lon - radius * 0.866, center_lat - radius * 0.5],
+                    [center_lon - radius * 0.866, center_lat + radius * 0.5],
+                    [center_lon, center_lat + radius]
                 ]]
             },
             "properties": {}
-        }]
+        }
+    
+    hexagons = {
+        "type": "FeatureCollection",
+        "features": [make_hex(lat, lon, r)]
     }
     
+    # 6. Retour complet
     return {
-        "mapl_db": round(mapl, 1),
-        "radius_km": round(radius_km, 2),
-        "estimated_sites": estimated_sites,
+        "model": model,
+        "frequency_mhz": req.frequency_mhz,
+        "environment": req.environment,
+        "mapl_db": round(mapl_db, 1),
+        "eirp_dbm": mapl_result["eirp_dbm"],
+        "radius_km": radius_km,
+        "estimated_sites": sites_result["sites"],
+        "hex_area_km2": sites_result["hex_area_km2"],
+        "breakdown": {
+            "tx_power_dbm": req.tx_power_dbm,
+            "tx_antenna_gain_dbi": req.tx_antenna_gain_dbi,
+            "tx_cable_loss_db": req.tx_cable_loss_db,
+            "rx_sensitivity_dbm": req.rx_sensitivity_dbm,
+            "margins_db": mapl_result["margins_db"],
+            "clutter_loss_db": req.clutter_loss_db,
+        },
         "hexagons_geojson": hexagons
     }
-
 # ==========================================
 # ENDPOINT 3 : VOISINAGE
 # ==========================================
