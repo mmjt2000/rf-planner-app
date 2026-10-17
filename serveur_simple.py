@@ -935,6 +935,71 @@ async def import_terrain_csv(req: TerrainRequest):
         },
         "message": f"{len(planned)} sites planifiés dans cette zone"
     }
+# ==========================================
+# ENDPOINT 8 : SAUVEGARDE / CHARGEMENT SCÉNARIO
+# ==========================================
+class ScenarioSaveRequest(BaseModel):
+    name: str = "scenario"
+    center_lat: float = 48.4284
+    center_lon: float = -71.0656
+
+class ScenarioLoadRequest(BaseModel):
+    scenario: dict
+
+@app.post("/api/v1/scenario/save")
+async def save_scenario(req: ScenarioSaveRequest):
+    """
+    Exporte l'état complet en JSON :
+    - 98 sites avec PCI/PRACH/TAC
+    - Config (fréquence, rayon, environnement)
+    - Timestamp
+    """
+    global _LAST_PLANNED_SITES
+    from datetime import datetime
+    
+    if not _LAST_PLANNED_SITES:
+        raise HTTPException(status_code=400, detail="Aucun site en mémoire. Placez les sites d'abord.")
+    
+    scenario = {
+        "version": "1.0",
+        "name": req.name,
+        "saved_at": datetime.utcnow().isoformat() + "Z",
+        "center": {
+            "lat": req.center_lat,
+            "lon": req.center_lon,
+        },
+        "stats": {
+            "n_sites": len(_LAST_PLANNED_SITES),
+            "n_pci_unique": len(set(s.get("assigned_pci", 0) for s in _LAST_PLANNED_SITES)),
+            "n_tac": len(set(s.get("tac", 1000) for s in _LAST_PLANNED_SITES)),
+        },
+        "sites": _LAST_PLANNED_SITES,
+    }
+    
+    return scenario
+
+@app.post("/api/v1/scenario/load")
+async def load_scenario(req: ScenarioLoadRequest):
+    """
+    Recharge un scénario depuis un JSON.
+    Écrase la mémoire actuelle.
+    """
+    global _LAST_PLANNED_SITES
+    
+    scenario = req.scenario
+    if not scenario.get("sites"):
+        raise HTTPException(status_code=400, detail="JSON invalide : champ 'sites' manquant")
+    
+    _LAST_PLANNED_SITES = scenario["sites"]
+    
+    print(f"🧠 {len(_LAST_PLANNED_SITES)} sites rechargés depuis scénario '{scenario.get('name', 'unknown')}'")
+    
+    return {
+        "success": True,
+        "n_sites": len(_LAST_PLANNED_SITES),
+        "name": scenario.get("name", "unknown"),
+        "saved_at": scenario.get("saved_at", "unknown"),
+    }
 
 @app.get("/health")
 def health_check():
