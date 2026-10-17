@@ -578,40 +578,78 @@ async def plan_pci(req: PCIRequest):
 # ==========================================
 @app.post("/api/v1/nominal-planning")
 async def generate_nominal_plan(req: NominalRequest):
+    """
+    Génère un plan nominal avec 3 ou 4 secteurs par site.
+    - Dense_Urban : 4 secteurs (0/90/180/270)
+    - Suburban / Rural : 3 secteurs (0/120/240)
+    """
+    global _LAST_PLANNED_SITES
+    
+    # Config par type de zone
     rules = {
-        "Dense_Urban": {"height": 25, "mech_tilt": 6, "elec_tilt": 4, "power": 40, "azimuth_step": 120},
-        "Suburban": {"height": 35, "mech_tilt": 3, "elec_tilt": 2, "power": 43, "azimuth_step": 120},
-        "Rural": {"height": 45, "mech_tilt": 0, "elec_tilt": 0, "power": 46, "azimuth_step": 120}
+        "Dense_Urban": {
+            "height": 25, "mech_tilt": 6, "elec_tilt": 4, "power": 40,
+            "sectors": 4, "azimuths": [0, 90, 180, 270],
+            "antenna": "Massive MIMO 64T64R"
+        },
+        "Suburban": {
+            "height": 35, "mech_tilt": 3, "elec_tilt": 2, "power": 43,
+            "sectors": 3, "azimuths": [0, 120, 240],
+            "antenna": "Standard 4T4R"
+        },
+        "Rural": {
+            "height": 45, "mech_tilt": 0, "elec_tilt": 0, "power": 46,
+            "sectors": 3, "azimuths": [0, 120, 240],
+            "antenna": "Standard 4T4R"
+        }
     }
     
     rule = rules.get(req.zone_type, rules["Suburban"])
+    
+    # Utiliser les 98 sites si dispo, sinon mock
+    sites_input = _LAST_PLANNED_SITES if _LAST_PLANNED_SITES else [
+        {"site_id": f"SITE_{i+1:03d}", "lat": 48.4284 + (i * 0.01), "lon": -71.0656}
+        for i in range(5)
+    ]
+    
     nominal_sites = []
+    for i, site in enumerate(sites_input):
+        for sec_idx, azimuth in enumerate(rule["azimuths"]):
+            sector_name = f"S{sec_idx + 1}"
+            nominal_sites.append({
+                "site_id": site["site_id"],
+                "sector": sector_name,
+                "cell_id": (i * rule["sectors"]) + sec_idx + 1,
+                "lat": site["lat"],
+                "lon": site["lon"],
+                "azimuth_deg": azimuth,
+                "mech_tilt_deg": rule["mech_tilt"],
+                "elec_tilt_deg": rule["elec_tilt"],
+                "total_tilt_deg": rule["mech_tilt"] + rule["elec_tilt"],
+                "height_m": rule["height"],
+                "tx_power_dbm": rule["power"],
+                "antenna_type": rule["antenna"],
+                "pci": site.get("assigned_pci", site.get("pci", 0)),
+                "tac": site.get("tac", 1000),
+            })
     
-    base_azimuth = 0
-    for i in range(3):
-        site_id = f"MTL_5G_NOM_{i+1:03d}"
-        azimuth = (base_azimuth + (i * rule["azimuth_step"])) % 360
-        
-        nominal_sites.append({
-            "site_id": site_id,
-            "lat": 48.4284 + (i * 0.005),
-            "lon": -71.0656 + (i * 0.005),
-            "azimuth_deg": azimuth,
-            "mech_tilt_deg": rule["mech_tilt"],
-            "elec_tilt_deg": rule["elec_tilt"],
-            "height_m": rule["height"],
-            "tx_power_dbm": rule["power"],
-            "antenna_type": "Massive MIMO 64T64R" if req.zone_type == "Dense_Urban" else "Standard 4T4R"
-        })
-    
-    csv_lines = ["Site ID,Latitude,Longitude,Azimuth (°),Méca Tilt (°),Élec Tilt (°),Hauteur (m),Puissance (dBm),Type Antenne"]
+    # CSV
+    csv_lines = ["site_id,sector,cell_id,lat,lon,azimuth_deg,mech_tilt_deg,elec_tilt_deg,total_tilt_deg,height_m,tx_power_dbm,antenna_type"]
     for s in nominal_sites:
-        csv_lines.append(f"{s['site_id']},{s['lat']},{s['lon']},{s['azimuth_deg']},{s['mech_tilt_deg']},{s['elec_tilt_deg']},{s['height_m']},{s['tx_power_dbm']},{s['antenna_type']}")
+        csv_lines.append(f"{s['site_id']},{s['sector']},{s['cell_id']},{s['lat']},{s['lon']},{s['azimuth_deg']},{s['mech_tilt_deg']},{s['elec_tilt_deg']},{s['total_tilt_deg']},{s['height_m']},{s['tx_power_dbm']},{s['antenna_type']}")
+    
+    # Stats
+    unique_sites = len(set(s["site_id"] for s in nominal_sites))
     
     return {
         "sites": nominal_sites,
         "csv_export": "\n".join(csv_lines),
-        "zone_applied": req.zone_type
+        "zone_applied": req.zone_type,
+        "stats": {
+            "total_sites": unique_sites,
+            "total_sectors": len(nominal_sites),
+            "sectors_per_site": rule["sectors"],
+        }
     }
 
 # ==========================================
@@ -619,34 +657,66 @@ async def generate_nominal_plan(req: NominalRequest):
 # ==========================================
 @app.post("/api/v1/scenario-simulator")
 async def simulate_scenarios(req: ScenarioRequest):
-    def calc_metrics(s, area, pop):
-        n = s["num_sites"]
-        band = float(s["band"])
-        zone = s["zone"]
-        
+    """
+    Simulateur de scaling : baseline 98 sites → +X sites additionnels.
+    Calcule le delta de couverture, capacité, CAPEX et ROI.
+    """
+    global _LAST_PLANNED_SITES
+    
+    # Baseline = 98 sites en mémoire (ou défaut)
+    baseline_sites = len(_LAST_PLANNED_SITES) if _LAST_PLANNED_SITES else 98
+    
+    # Paramètres
+    area_km2 = req.target_area_km2 or 100.0
+    population = req.population or 150000
+    
+    def parse_int(v, default=10):
+        try:
+            return int(v) if v is not None else default
+        except:
+            return default
+    
+    def parse_float(v, default=3500.0):
+        try:
+            return float(v) if v is not None else default
+        except:
+            return default
+    
+    def parse_zone(v):
+        return v if v in ("Dense_Urban", "Suburban", "Rural") else "Suburban"
+    
+    # Scénario A et B : extraire +X sites additionnels
+    a = req.scenario_a or {}
+    b = req.scenario_b or {}
+    
+    a_extra = parse_int(a.get("num_sites"), 10)
+    b_extra = parse_int(b.get("num_sites"), 20)
+    band = parse_float(a.get("band"), 3500.0)
+    zone = parse_zone(a.get("zone", "Suburban"))
+    cost_per_site = parse_float(a.get("cost_per_site"), 120000.0)
+    
+    def calc_metrics(n_sites, area, pop, band, zone, cost_per_site):
         base_radius = {"Dense_Urban": 0.5, "Suburban": 1.2, "Rural": 3.0}
         r = base_radius.get(zone, 1.0) * (3500 / band) ** 0.5
         
         hex_area = (3 * math.sqrt(3) / 2) * (r ** 2)
-        coverage_pct = min(98.0, (n * hex_area * 0.65 / area) * 100)
+        coverage_pct = min(100.0, (n_sites * hex_area * 0.65 / area) * 100)
         
         capacity_per_site = {"Dense_Urban": 1.0, "Suburban": 0.7, "Rural": 0.4}
-        total_capacity_gbps = n * capacity_per_site.get(zone, 0.7)
+        total_capacity_gbps = n_sites * capacity_per_site.get(zone, 0.7)
         capacity_per_user_mbps = (total_capacity_gbps * 1000) / pop if pop > 0 else 0
         
-        cost_per_site = {"Dense_Urban": 180000, "Suburban": 120000, "Rural": 90000}
-        capex_usd = n * cost_per_site.get(zone, 120000)
+        capex_usd = n_sites * cost_per_site
         opex_annual_usd = capex_usd * 0.12
         
-        sinr_db = 25 - (n / area) * 2
+        sinr_db = 25 - (n_sites / area) * 2
         
         arpu_monthly = 15
         revenue_annual = pop * 0.30 * arpu_monthly * 12
         payback_years = capex_usd / revenue_annual if revenue_annual > 0 else 99
         
         return {
-            "name": s["name"],
-            "num_sites": n,
+            "num_sites": n_sites,
             "radius_km": round(r, 2),
             "coverage_pct": round(coverage_pct, 1),
             "total_capacity_gbps": round(total_capacity_gbps, 1),
@@ -655,21 +725,65 @@ async def simulate_scenarios(req: ScenarioRequest):
             "opex_annual_usd": int(opex_annual_usd),
             "avg_sinr_db": round(sinr_db, 1),
             "payback_years": round(payback_years, 1),
-            "cost_per_covered_user_usd": round(capex_usd / (pop * coverage_pct / 100), 2) if coverage_pct > 0 else 0
+            "cost_per_covered_user_usd": round(capex_usd / (pop * coverage_pct / 100), 2) if coverage_pct > 0 else 0,
         }
     
-    metrics_a = calc_metrics(req.scenario_a, req.target_area_km2, req.population)
-    metrics_b = calc_metrics(req.scenario_b, req.target_area_km2, req.population)
+    # Baseline
+    baseline_metrics = calc_metrics(baseline_sites, area_km2, population, band, zone, cost_per_site)
     
-    winner = metrics_a if metrics_a["coverage_pct"] > metrics_b["coverage_pct"] else metrics_b
-    recommendation = f"Le scénario '{winner['name']}' offre la meilleure couverture ({winner['coverage_pct']}%) avec un payback de {winner['payback_years']} ans."
+    # Scénario A et B
+    a_sites = baseline_sites + a_extra
+    b_sites = baseline_sites + b_extra
+    
+    a_metrics = calc_metrics(a_sites, area_km2, population, band, zone, cost_per_site)
+    b_metrics = calc_metrics(b_sites, area_km2, population, band, zone, cost_per_site)
+    
+    # Deltas
+    def add_delta(metrics, baseline):
+        m = metrics.copy()
+        m["delta_sites"] = metrics["num_sites"] - baseline["num_sites"]
+        m["delta_capex_usd"] = metrics["capex_usd"] - baseline["capex_usd"]
+        m["delta_capacity_gbps"] = round(metrics["total_capacity_gbps"] - baseline["total_capacity_gbps"], 2)
+        m["delta_coverage_pct"] = round(metrics["coverage_pct"] - baseline["coverage_pct"], 2)
+        # ROI : coût marginal / capacité incrémentale
+        if m["delta_capacity_gbps"] > 0:
+            m["cost_per_gbps_incremental"] = int(m["delta_capex_usd"] / m["delta_capacity_gbps"])
+        else:
+            m["cost_per_gbps_incremental"] = 0
+        return m
+    
+    a_final = add_delta(a_metrics, baseline_metrics)
+    b_final = add_delta(b_metrics, baseline_metrics)
+    
+    # Recommandation
+    a_roi = a_final["cost_per_gbps_incremental"]
+    b_roi = b_final["cost_per_gbps_incremental"]
+    
+    if a_roi == 0 and b_roi == 0:
+        recommendation = "Aucun gain de capacité détecté. Vérifiez les paramètres."
+    elif a_roi > 0 and b_roi > 0:
+        if a_roi < b_roi:
+            recommendation = f"Le scénario A (+{a_extra} sites) offre le meilleur ROI : {a_roi:,} $/Gbps additionnel contre {b_roi:,} $/Gbps pour B. Chaque site ajoute en moyenne {round(a_final['delta_capacity_gbps']/a_extra, 2)} Gbps."
+        else:
+            recommendation = f"Le scénario B (+{b_extra} sites) offre le meilleur ROI : {b_roi:,} $/Gbps additionnel contre {a_roi:,} $/Gbps pour A. Chaque site ajoute en moyenne {round(b_final['delta_capacity_gbps']/b_extra, 2)} Gbps."
+    else:
+        recommendation = "Comparez les coûts marginaux pour trancher."
     
     return {
-        "scenario_a": metrics_a,
-        "scenario_b": metrics_b,
+        "baseline": baseline_metrics,
+        "scenario_a": a_final,
+        "scenario_b": b_final,
         "recommendation": recommendation,
-        "target_area_km2": req.target_area_km2,
-        "population": req.population
+        "config": {
+            "baseline_sites": baseline_sites,
+            "a_extra_sites": a_extra,
+            "b_extra_sites": b_extra,
+            "band_mhz": band,
+            "zone": zone,
+            "cost_per_site_usd": int(cost_per_site),
+            "target_area_km2": area_km2,
+            "population": population,
+        }
     }
 
 # ==========================================

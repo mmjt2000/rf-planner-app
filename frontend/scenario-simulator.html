@@ -5,14 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RF Planner - Simulateur de Scénarios</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
         body { font-family: 'Inter', sans-serif; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .chart-wrapper { position: relative; height: 280px; }
+        .baseline-box { background: rgba(100, 116, 139, 0.15); border: 1px dashed rgb(100, 116, 139); }
+        .scenario-a-box { background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.4); }
+        .scenario-b-box { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.4); }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-200 h-screen flex flex-col overflow-hidden">
@@ -24,8 +25,14 @@
                 <div class="w-2.5 h-2.5 bg-cyan-500 rounded-full animate-pulse"></div>
                 RF Planner
             </a>
-            <nav class="hidden md:flex items-center gap-1 text-sm"><a href="/" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Link Budget</a><a href="/pci_planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">PCI / PRACH</a><a href="/neighbor.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Voisinage</a><a href="/nominal-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Nominal</a><a href="/scenario-simulator.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Simulateur</a><a href="/terrain-import.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Terrain</a></nav>
-            
+            <nav class="hidden md:flex items-center gap-1 text-sm">
+                <a href="/" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Link Budget</a>
+                <a href="/pci_planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">PCI / PRACH</a>
+                <a href="/neighbor.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Voisinage</a>
+                <a href="/nominal-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Nominal</a>
+                <a href="/scenario-simulator.html" class="px-3 py-1.5 rounded-md bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 transition">Simulateur</a>
+                <a href="/terrain-import.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Terrain</a>
+            </nav>
         </div>
         <div class="flex items-center gap-3">
             <span class="text-xs text-slate-500">Projet: <span class="text-slate-300 font-medium">Chicoutimi 5G</span></span>
@@ -34,321 +41,465 @@
 
     <!-- CONTENU -->
     <div class="flex flex-1 overflow-hidden">
-        <!-- Panneau Gauche : Configuration -->
-        <aside class="w-[480px] bg-slate-800 border-r border-slate-700 flex flex-col overflow-y-auto shrink-0">
+        <!-- Panneau Gauche -->
+        <aside class="w-[440px] bg-slate-800 border-r border-slate-700 flex flex-col overflow-y-auto shrink-0">
             <div class="p-5 border-b border-slate-700">
                 <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                    <span class="text-cyan-400">📊</span> Simulateur de Scénarios
+                    <span class="text-cyan-400">📈</span> Simulateur de Scaling
                 </h2>
-                <p class="text-xs text-slate-400 mt-1">Comparaison coût / couverture / capacité</p>
+                <p class="text-xs text-slate-400 mt-1">Baseline actuelle → +X sites additionnels</p>
+                <p class="text-xs text-slate-500 mt-2">
+                    <span id="baseline-badge" class="inline-block px-2 py-0.5 bg-slate-700 rounded text-slate-300 font-mono">Chargement...</span>
+                </p>
             </div>
 
             <div class="p-5 space-y-5 flex-1">
-                <!-- Paramètres globaux -->
+                <!-- BASELINE (lecture seule) -->
+                <div class="baseline-box rounded-lg p-4">
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">📍 Baseline actuelle</div>
+                    <div class="flex items-baseline gap-2">
+                        <span id="baseline-sites" class="text-3xl font-bold text-white font-mono">--</span>
+                        <span class="text-sm text-slate-400">sites en mémoire</span>
+                    </div>
+                    <div class="text-xs text-slate-500 mt-2 italic">
+                        Lue depuis le module Link Budget
+                    </div>
+                </div>
+
+                <!-- PARAMÈTRES DE LA ZONE -->
                 <div>
                     <label class="block text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2">Paramètres de la zone</label>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-xs text-slate-400 mb-1">Surface (km²)</label>
-                            <input type="number" id="area" value="100" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
+                            <label class="text-xs text-slate-400 mb-1 block">Surface (km²)</label>
+                            <input type="number" id="area" value="100" min="10" max="5000"
+                                class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
                         </div>
                         <div>
-                            <label class="block text-xs text-slate-400 mb-1">Population</label>
-                            <input type="number" id="population" value="150000" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
+                            <label class="text-xs text-slate-400 mb-1 block">Population</label>
+                            <input type="number" id="population" value="150000" min="1000"
+                                class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3 mt-3">
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Bande (MHz)</label>
+                            <input type="number" id="band" value="3500"
+                                class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Zone</label>
+                            <select id="zone" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                                <option value="Dense_Urban">Urbain dense</option>
+                                <option value="Suburban" selected>Suburbain</option>
+                                <option value="Rural">Rural</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Coût/site ($)</label>
+                            <input type="number" id="cost_per_site" value="120000" step="5000"
+                                class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
                         </div>
                     </div>
                 </div>
 
-                <!-- Scénario A -->
-                <div class="bg-slate-900/50 border-2 border-cyan-500/30 rounded-lg p-4">
-                    <h3 class="text-sm font-bold text-cyan-400 mb-3 flex items-center gap-2">
-                        <div class="w-2 h-2 bg-cyan-500 rounded-full"></div> SCÉNARIO A
-                    </h3>
-                    <div class="space-y-3">
-                        <input type="text" id="name-a" value="Conservateur (15 sites)" class="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
-                        <div class="grid grid-cols-3 gap-2">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Sites</label>
-                                <input type="number" id="sites-a" value="15" class="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Bande (MHz)</label>
-                                <input type="number" id="band-a" value="3500" class="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Zone</label>
-                                <select id="zone-a" class="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
-                                    <option value="Dense_Urban">Urbain Dense</option>
-                                    <option value="Suburban" selected>Suburbain</option>
-                                    <option value="Rural">Rural</option>
-                                </select>
-                            </div>
+                <!-- SCÉNARIO A -->
+                <div class="scenario-a-box rounded-lg p-4">
+                    <div class="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-3">● Scénario A</div>
+                    <div>
+                        <label class="text-xs text-slate-400 mb-1 block">Nom du scénario</label>
+                        <input type="text" id="a-name" value="Conservateur (+10 sites)"
+                            class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">+ Sites additionnels</label>
+                            <input type="number" id="a-extra" value="10" min="1" max="500"
+                                class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Total</label>
+                            <input type="text" id="a-total" value="--" readonly
+                                class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-cyan-400 font-mono text-center">
                         </div>
                     </div>
                 </div>
 
-                <!-- Scénario B -->
-                <div class="bg-slate-900/50 border-2 border-rose-500/30 rounded-lg p-4">
-                    <h3 class="text-sm font-bold text-rose-400 mb-3 flex items-center gap-2">
-                        <div class="w-2 h-2 bg-rose-500 rounded-full"></div> SCÉNARIO B
-                    </h3>
-                    <div class="space-y-3">
-                        <input type="text" id="name-b" value="Ambitieux (25 sites)" class="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
-                        <div class="grid grid-cols-3 gap-2">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Sites</label>
-                                <input type="number" id="sites-b" value="25" class="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Bande (MHz)</label>
-                                <input type="number" id="band-b" value="3500" class="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Zone</label>
-                                <select id="zone-b" class="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm text-white">
-                                    <option value="Dense_Urban">Urbain Dense</option>
-                                    <option value="Suburban" selected>Suburbain</option>
-                                    <option value="Rural">Rural</option>
-                                </select>
-                            </div>
+                <!-- SCÉNARIO B -->
+                <div class="scenario-b-box rounded-lg p-4">
+                    <div class="text-xs font-bold text-rose-400 uppercase tracking-wider mb-3">● Scénario B</div>
+                    <div>
+                        <label class="text-xs text-slate-400 mb-1 block">Nom du scénario</label>
+                        <input type="text" id="b-name" value="Ambitieux (+25 sites)"
+                            class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">+ Sites additionnels</label>
+                            <input type="number" id="b-extra" value="25" min="1" max="500"
+                                class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">Total</label>
+                            <input type="text" id="b-total" value="--" readonly
+                                class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-rose-400 font-mono text-center">
                         </div>
                     </div>
                 </div>
 
-                <button onclick="runSimulation()" class="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition shadow-lg shadow-cyan-500/20 flex justify-center items-center gap-2">
+                <button onclick="runSimulation()" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition shadow-lg shadow-cyan-500/20 flex justify-center items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
                     Lancer la simulation
                 </button>
 
-                <!-- Recommandation IA -->
-                <div id="recommendation-box" class="hidden bg-gradient-to-r from-cyan-900/30 to-blue-900/30 border border-cyan-500/50 rounded-lg p-4">
-                    <div class="flex items-start gap-2">
-                        <span class="text-cyan-400 text-lg">💡</span>
+                <!-- Recommandation -->
+                <div id="recommendation-box" class="hidden bg-slate-900/70 border border-emerald-500/30 rounded-lg p-4">
+                    <div class="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">💡 Recommandation</div>
+                    <p id="recommendation-text" class="text-sm text-slate-200 leading-relaxed">--</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Résultats -->
+        <main class="flex-1 overflow-y-auto bg-slate-950 p-6">
+            <!-- Alerte baseline vide -->
+            <div id="no-data-warning" class="hidden mb-4 p-4 bg-amber-500/10 border border-amber-500/40 rounded-lg text-amber-300 text-sm">
+                ⚠️ Aucun site en mémoire. Va sur <a href="/" class="underline font-semibold">Link Budget</a> → cliquer "Placer les sites" d'abord.
+            </div>
+
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <!-- Couverture -->
+                <div class="bg-slate-900/50 border border-slate-700 rounded-lg p-5">
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Couverture réseau (%)</div>
+                    <div class="grid grid-cols-3 gap-3 text-center">
                         <div>
-                            <div class="text-xs font-bold text-cyan-400 uppercase mb-1">Recommandation</div>
-                            <p id="recommendation-text" class="text-sm text-slate-200"></p>
+                            <div class="text-xs text-slate-500 mb-1">Baseline</div>
+                            <div class="text-xl font-bold text-slate-300 font-mono" id="cov-baseline">--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-cyan-400 mb-1">Scénario A</div>
+                            <div class="text-xl font-bold text-cyan-400 font-mono" id="cov-a">--</div>
+                            <div class="text-xs text-emerald-400 mt-1" id="cov-a-delta">--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-rose-400 mb-1">Scénario B</div>
+                            <div class="text-xl font-bold text-rose-400 font-mono" id="cov-b">--</div>
+                            <div class="text-xs text-emerald-400 mt-1" id="cov-b-delta">--</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Bouton Export PDF -->
-                <button onclick="exportPDF()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition flex justify-center items-center gap-2 border border-slate-600">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                    Exporter le rapport PDF
-                </button>
-            </div>
-        </aside>
+                <!-- Capacité -->
+                <div class="bg-slate-900/50 border border-slate-700 rounded-lg p-5">
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Capacité totale (Gbps)</div>
+                    <div class="grid grid-cols-3 gap-3 text-center">
+                        <div>
+                            <div class="text-xs text-slate-500 mb-1">Baseline</div>
+                            <div class="text-xl font-bold text-slate-300 font-mono" id="cap-baseline">--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-cyan-400 mb-1">Scénario A</div>
+                            <div class="text-xl font-bold text-cyan-400 font-mono" id="cap-a">--</div>
+                            <div class="text-xs text-emerald-400 mt-1" id="cap-a-delta">--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-rose-400 mb-1">Scénario B</div>
+                            <div class="text-xl font-bold text-rose-400 font-mono" id="cap-b">--</div>
+                            <div class="text-xs text-emerald-400 mt-1" id="cap-b-delta">--</div>
+                        </div>
+                    </div>
+                </div>
 
-        <!-- Zone Droite : Résultats + Graphiques -->
-        <main class="flex-1 bg-slate-950 overflow-y-auto p-6">
-            <!-- KPI Cards -->
-            <div id="kpi-container" class="grid grid-cols-2 gap-4 mb-6">
-                <!-- Rempli dynamiquement -->
-                <div class="col-span-2 bg-slate-800/50 border border-slate-700 rounded-lg p-8 text-center">
-                    <p class="text-slate-500">Lancez une simulation pour voir les résultats</p>
+                <!-- CAPEX -->
+                <div class="bg-slate-900/50 border border-slate-700 rounded-lg p-5">
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">CAPEX additionnel (USD)</div>
+                    <div class="grid grid-cols-3 gap-3 text-center">
+                        <div>
+                            <div class="text-xs text-slate-500 mb-1">Baseline</div>
+                            <div class="text-base font-bold text-slate-300 font-mono" id="capex-baseline">--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-cyan-400 mb-1">Δ Scénario A</div>
+                            <div class="text-base font-bold text-amber-400 font-mono" id="capex-a">--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-rose-400 mb-1">Δ Scénario B</div>
+                            <div class="text-base font-bold text-amber-400 font-mono" id="capex-b">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ROI -->
+                <div class="bg-slate-900/50 border border-slate-700 rounded-lg p-5">
+                    <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Coût marginal ($/Gbps)</div>
+                    <div class="grid grid-cols-3 gap-3 text-center">
+                        <div>
+                            <div class="text-xs text-slate-500 mb-1">Baseline</div>
+                            <div class="text-base font-bold text-slate-300 font-mono">—</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-cyan-400 mb-1">Scénario A</div>
+                            <div class="text-base font-bold text-emerald-400 font-mono" id="roi-a">--</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-rose-400 mb-1">Scénario B</div>
+                            <div class="text-base font-bold text-emerald-400 font-mono" id="roi-b">--</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <!-- Graphiques -->
-            <div class="grid grid-cols-2 gap-4">
-                <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                    <h3 class="text-xs font-bold text-cyan-400 uppercase mb-3">Couverture & Qualité</h3>
-                    <canvas id="chart1"></canvas>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-slate-900/50 border border-slate-700 rounded-lg p-5">
+                    <div class="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-3">Couverture & Qualité</div>
+                    <div class="chart-wrapper">
+                        <canvas id="radar-chart"></canvas>
+                    </div>
                 </div>
-                <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                    <h3 class="text-xs font-bold text-cyan-400 uppercase mb-3">Analyse Financière</h3>
-                    <canvas id="chart2"></canvas>
+                <div class="bg-slate-900/50 border border-slate-700 rounded-lg p-5">
+                    <div class="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-3">Analyse financière</div>
+                    <div class="chart-wrapper">
+                        <canvas id="bar-chart"></canvas>
+                    </div>
                 </div>
             </div>
         </main>
     </div>
 
     <script>
-        let chart1, chart2;
-        let lastResult = null;
+        let radarChart = null;
+        let barChart = null;
 
+        // ============================================
+        // CHARGEMENT BASELINE
+        // ============================================
+        async function loadBaseline() {
+            try {
+                const r = await fetch('/api/v1/memory-status');
+                const d = await r.json();
+                const baseline = d.planned_sites_in_memory || 0;
+                document.getElementById('baseline-sites').innerText = baseline;
+                document.getElementById('baseline-badge').innerText = `${baseline} sites chargés`;
+                if (baseline === 0) {
+                    document.getElementById('no-data-warning').classList.remove('hidden');
+                }
+                updateTotals(baseline);
+                return baseline;
+            } catch (e) {
+                console.error(e);
+                document.getElementById('baseline-badge').innerText = 'Erreur';
+                return 0;
+            }
+        }
+
+        function updateTotals(baseline) {
+            const aExtra = parseInt(document.getElementById('a-extra').value) || 0;
+            const bExtra = parseInt(document.getElementById('b-extra').value) || 0;
+            document.getElementById('a-total').value = baseline + aExtra;
+            document.getElementById('b-total').value = baseline + bExtra;
+        }
+
+        // Écouter les changements sur les champs "+X"
+        document.getElementById('a-extra').addEventListener('input', async () => {
+            const baseline = parseInt(document.getElementById('baseline-sites').innerText) || 0;
+            updateTotals(baseline);
+        });
+        document.getElementById('b-extra').addEventListener('input', async () => {
+            const baseline = parseInt(document.getElementById('baseline-sites').innerText) || 0;
+            updateTotals(baseline);
+        });
+
+        // ============================================
+        // SIMULATION
+        // ============================================
         async function runSimulation() {
+            const baseline = parseInt(document.getElementById('baseline-sites').innerText) || 0;
+
             const payload = {
                 scenario_a: {
-                    name: document.getElementById('name-a').value,
-                    num_sites: parseInt(document.getElementById('sites-a').value),
-                    band: document.getElementById('band-a').value,
-                    zone: document.getElementById('zone-a').value
+                    name: document.getElementById('a-name').value,
+                    num_sites: parseInt(document.getElementById('a-extra').value) || 10,
+                    band: document.getElementById('band').value,
+                    zone: document.getElementById('zone').value,
+                    cost_per_site: parseFloat(document.getElementById('cost_per_site').value) || 120000
                 },
                 scenario_b: {
-                    name: document.getElementById('name-b').value,
-                    num_sites: parseInt(document.getElementById('sites-b').value),
-                    band: document.getElementById('band-b').value,
-                    zone: document.getElementById('zone-b').value
+                    name: document.getElementById('b-name').value,
+                    num_sites: parseInt(document.getElementById('b-extra').value) || 25,
+                    band: document.getElementById('band').value,
+                    zone: document.getElementById('zone').value
                 },
-                target_area_km2: parseFloat(document.getElementById('area').value),
-                population: parseInt(document.getElementById('population').value)
+                target_area_km2: parseFloat(document.getElementById('area').value) || 100,
+                population: parseInt(document.getElementById('population').value) || 150000
             };
 
             try {
-                const response = await fetch('/api/v1/scenario-simulator', {
+                const r = await fetch('/api/v1/scenario-simulator', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                const data = await response.json();
-                lastResult = data;
+
+                const data = await r.json();
                 displayResults(data);
-            } catch (error) {
-                console.error(error);
-                alert("Erreur API. Vérifiez que le serveur tourne.");
+            } catch (e) {
+                console.error(e);
+                alert('Erreur API. Vérifie que le serveur tourne.');
             }
         }
 
+        // ============================================
+        // AFFICHAGE DES RÉSULTATS
+        // ============================================
         function displayResults(data) {
+            const base = data.baseline;
             const a = data.scenario_a;
             const b = data.scenario_b;
 
-            // KPI Cards
-            document.getElementById('kpi-container').innerHTML = `
-                ${kpiCard('📡', 'Couverture', a.coverage_pct + '%', b.coverage_pct + '%', '%')}
-                ${kpiCard('⚡', 'Capacité totale', a.total_capacity_gbps + ' Gbps', b.total_capacity_gbps + ' Gbps', 'Gbps')}
-                ${kpiCard('', 'Débit/utilisateur', a.capacity_per_user_mbps + ' Mbps', b.capacity_per_user_mbps + ' Mbps', 'Mbps')}
-                ${kpiCard('💰', 'CAPEX', '$' + formatMoney(a.capex_usd), '$' + formatMoney(b.capex_usd), '$')}
-                ${kpiCard('📶', 'SINR moyen', a.avg_sinr_db + ' dB', b.avg_sinr_db + ' dB', 'dB')}
-                ${kpiCard('⏱️', 'Payback', a.payback_years + ' ans', b.payback_years + ' ans', 'ans')}
-            `;
+            // Couverture
+            document.getElementById('cov-baseline').innerText = base.coverage_pct + '%';
+            document.getElementById('cov-a').innerText = a.coverage_pct + '%';
+            document.getElementById('cov-b').innerText = b.coverage_pct + '%';
+            document.getElementById('cov-a-delta').innerText = (a.delta_coverage_pct >= 0 ? '+' : '') + a.delta_coverage_pct + '%';
+            document.getElementById('cov-b-delta').innerText = (b.delta_coverage_pct >= 0 ? '+' : '') + b.delta_coverage_pct + '%';
+
+            // Capacité
+            document.getElementById('cap-baseline').innerText = base.total_capacity_gbps + ' Gbps';
+            document.getElementById('cap-a').innerText = a.total_capacity_gbps + ' Gbps';
+            document.getElementById('cap-b').innerText = b.total_capacity_gbps + ' Gbps';
+            document.getElementById('cap-a-delta').innerText = '+' + a.delta_capacity_gbps + ' Gbps';
+            document.getElementById('cap-b-delta').innerText = '+' + b.delta_capacity_gbps + ' Gbps';
+
+            // CAPEX
+            document.getElementById('capex-baseline').innerText = '$' + formatMoney(base.capex_usd);
+            document.getElementById('capex-a').innerText = '+$' + formatMoney(a.delta_capex_usd);
+            document.getElementById('capex-b').innerText = '+$' + formatMoney(b.delta_capex_usd);
+
+            // ROI
+            document.getElementById('roi-a').innerText = a.cost_per_gbps_incremental ? '$' + formatMoney(a.cost_per_gbps_incremental) : '—';
+            document.getElementById('roi-b').innerText = b.cost_per_gbps_incremental ? '$' + formatMoney(b.cost_per_gbps_incremental) : '—';
 
             // Recommandation
-            document.getElementById('recommendation-box').classList.remove('hidden');
             document.getElementById('recommendation-text').innerText = data.recommendation;
+            document.getElementById('recommendation-box').classList.remove('hidden');
 
             // Graphiques
-            updateCharts(a, b);
-        }
-
-        function kpiCard(icon, label, valA, valB, unit) {
-            return `
-                <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                    <div class="flex items-center gap-2 mb-3">
-                        <span class="text-xl">${icon}</span>
-                        <span class="text-xs font-bold text-slate-400 uppercase">${label}</span>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <div class="text-[10px] text-cyan-400 uppercase">Scénario A</div>
-                            <div class="text-lg font-bold text-white font-mono">${valA}</div>
-                        </div>
-                        <div>
-                            <div class="text-[10px] text-rose-400 uppercase">Scénario B</div>
-                            <div class="text-lg font-bold text-white font-mono">${valB}</div>
-                        </div>
-                    </div>
-                </div>
-            `;
+            updateCharts(base, a, b, data.config);
         }
 
         function formatMoney(n) {
-            return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            if (!n) return '0';
+            return Math.round(n).toLocaleString('en-US').replace(/,/g, ' ');
         }
 
-        function updateCharts(a, b) {
-            if (chart1) chart1.destroy();
-            if (chart2) chart2.destroy();
+        // ============================================
+        // GRAPHIQUES
+        // ============================================
+        function updateCharts(base, a, b, cfg) {
+            // Détruire les anciens graphiques
+            if (radarChart) radarChart.destroy();
+            if (barChart) barChart.destroy();
 
-            const ctx1 = document.getElementById('chart1').getContext('2d');
-            chart1 = new Chart(ctx1, {
+            const aName = `A: +${cfg.a_extra_sites} sites`;
+            const bName = `B: +${cfg.b_extra_sites} sites`;
+
+            // Radar
+            radarChart = new Chart(document.getElementById('radar-chart'), {
                 type: 'radar',
                 data: {
                     labels: ['Couverture (%)', 'Capacité (Gbps)', 'SINR (dB)', 'Débit/user (Mbps)'],
                     datasets: [
-                        { label: a.name, data: [a.coverage_pct, a.total_capacity_gbps * 10, a.avg_sinr_db * 4, a.capacity_per_user_mbps * 10], borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.2)', borderWidth: 2 },
-                        { label: b.name, data: [b.coverage_pct, b.total_capacity_gbps * 10, b.avg_sinr_db * 4, b.capacity_per_user_mbps * 10], borderColor: '#f43f5e', backgroundColor: 'rgba(244,63,94,0.2)', borderWidth: 2 }
+                        {
+                            label: 'Baseline (' + base.num_sites + ' sites)',
+                            data: [base.coverage_pct, base.total_capacity_gbps, base.avg_sinr_db, base.capacity_per_user_mbps],
+                            borderColor: '#94a3b8',
+                            backgroundColor: 'rgba(148, 163, 184, 0.15)',
+                            borderWidth: 2
+                        },
+                        {
+                            label: aName,
+                            data: [a.coverage_pct, a.total_capacity_gbps, a.avg_sinr_db, a.capacity_per_user_mbps],
+                            borderColor: '#06b6d4',
+                            backgroundColor: 'rgba(6, 182, 212, 0.15)',
+                            borderWidth: 2
+                        },
+                        {
+                            label: bName,
+                            data: [b.coverage_pct, b.total_capacity_gbps, b.avg_sinr_db, b.capacity_per_user_mbps],
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                            borderWidth: 2
+                        }
                     ]
                 },
-                options: { responsive: true, plugins: { legend: { labels: { color: '#cbd5e1' } } }, scales: { r: { grid: { color: '#334155' }, angleLines: { color: '#334155' }, ticks: { color: '#94a3b8', backdropColor: 'transparent' } } } }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            angleLines: { color: '#334155' },
+                            grid: { color: '#334155' },
+                            pointLabels: { color: '#cbd5e1', font: { size: 11 } },
+                            ticks: { color: '#64748b', backdropColor: 'transparent' }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#cbd5e1', font: { size: 11 } } }
+                    }
+                }
             });
 
-            const ctx2 = document.getElementById('chart2').getContext('2d');
-            chart2 = new Chart(ctx2, {
+            // Barres
+            barChart = new Chart(document.getElementById('bar-chart'), {
                 type: 'bar',
                 data: {
-                    labels: ['CAPEX ($)', 'OPEX annuel ($)', 'Coût/user couvert ($)'],
+                    labels: ['CAPEX additionnel ($)', 'Capacité additionnelle (Gbps)', 'Δ couverture (%)'],
                     datasets: [
-                        { label: a.name, data: [a.capex_usd, a.opex_annual_usd, a.cost_per_covered_user_usd], backgroundColor: '#06b6d4' },
-                        { label: b.name, data: [b.capex_usd, b.opex_annual_usd, b.cost_per_covered_user_usd], backgroundColor: '#f43f5e' }
+                        {
+                            label: aName,
+                            data: [a.delta_capex_usd, a.delta_capacity_gbps, a.delta_coverage_pct],
+                            backgroundColor: 'rgba(6, 182, 212, 0.8)',
+                            borderColor: '#06b6d4',
+                            borderWidth: 1
+                        },
+                        {
+                            label: bName,
+                            data: [b.delta_capex_usd, b.delta_capacity_gbps, b.delta_coverage_pct],
+                            backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                            borderColor: '#ef4444',
+                            borderWidth: 1
+                        }
                     ]
                 },
-                options: { responsive: true, plugins: { legend: { labels: { color: '#cbd5e1' } } }, scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } }, y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } } } }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#cbd5e1' },
+                            grid: { color: '#334155' }
+                        },
+                        x: {
+                            ticks: { color: '#cbd5e1', font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#cbd5e1', font: { size: 11 } } }
+                    }
+                }
             });
         }
 
-        function exportPDF() {
-            if (!lastResult) { alert("Lancez d'abord une simulation."); return; }
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
-            const a = lastResult.scenario_a;
-            const b = lastResult.scenario_b;
-
-            doc.setFontSize(18);
-            doc.setTextColor(6, 182, 212);
-            doc.text("RF Planner - Rapport de Simulation", 20, 20);
-            
-            doc.setFontSize(11);
-            doc.setTextColor(100);
-            doc.text(`Projet: Chicoutimi 5G | Date: ${new Date().toLocaleDateString('fr-FR')}`, 20, 30);
-            doc.text(`Zone: ${lastResult.target_area_km2} km² | Population: ${lastResult.population}`, 20, 37);
-
-            doc.setFontSize(14);
-            doc.setTextColor(30);
-            doc.text("Comparaison des scénarios", 20, 50);
-
-            doc.setFontSize(10);
-            let y = 60;
-            const metrics = [
-                ['Nombre de sites', a.num_sites, b.num_sites],
-                ['Couverture', a.coverage_pct + '%', b.coverage_pct + '%'],
-                ['Capacité totale', a.total_capacity_gbps + ' Gbps', b.total_capacity_gbps + ' Gbps'],
-                ['Débit/utilisateur', a.capacity_per_user_mbps + ' Mbps', b.capacity_per_user_mbps + ' Mbps'],
-                ['SINR moyen', a.avg_sinr_db + ' dB', b.avg_sinr_db + ' dB'],
-                ['CAPEX', '$' + formatMoney(a.capex_usd), '$' + formatMoney(b.capex_usd)],
-                ['OPEX annuel', '$' + formatMoney(a.opex_annual_usd), '$' + formatMoney(b.opex_annual_usd)],
-                ['Payback', a.payback_years + ' ans', b.payback_years + ' ans'],
-                ['Coût/user couvert', '$' + a.cost_per_covered_user_usd, '$' + b.cost_per_covered_user_usd]
-            ];
-
-            // Header
-            doc.setFillColor(240);
-            doc.rect(20, y-5, 170, 8, 'F');
-            doc.setFont(undefined, 'bold');
-            doc.text('Métrique', 22, y);
-            doc.text(a.name, 90, y);
-            doc.text(b.name, 140, y);
-            y += 10;
-            doc.setFont(undefined, 'normal');
-
-            metrics.forEach(m => {
-                doc.text(m[0], 22, y);
-                doc.text(String(m[1]), 90, y);
-                doc.text(String(m[2]), 140, y);
-                y += 7;
-            });
-
-            y += 5;
-            doc.setFontSize(11);
-            doc.setTextColor(6, 182, 212);
-            doc.setFont(undefined, 'bold');
-            doc.text("Recommandation:", 20, y);
-            y += 7;
-            doc.setFont(undefined, 'normal');
-            doc.setTextColor(30);
-            doc.setFontSize(10);
-            const splitRec = doc.splitTextToSize(lastResult.recommendation, 170);
-            doc.text(splitRec, 20, y);
-
-            y += 20;
-            doc.setFontSize(8);
-            doc.setTextColor(150);
-            doc.text("Généré par RF Planner - Jean Thomas Montreuil | Expert RF Senior", 20, y);
-            doc.text("https://mon-site-rf.onrender.com", 20, y+5);
-
-            doc.save("RF-Planner-Simulation.pdf");
-        }
+        // ============================================
+        // CHARGEMENT INITIAL
+        // ============================================
+        loadBaseline().then(baseline => {
+            updateTotals(baseline);
+        });
     </script>
 </body>
 </html>
