@@ -904,6 +904,37 @@ async def get_sites():
         "sites": sites_enriched,
         "count": len(sites_enriched)
     }
+@app.post("/api/v1/terrain-import-csv")
+async def import_terrain_csv(req: TerrainRequest):
+    """
+    Import de sites depuis une bounding box.
+    Retourne les sites planifiés (_LAST_PLANNED_SITES) + les obstacles simulés.
+    """
+    global _LAST_PLANNED_SITES
+    
+    # Sites planifiés dans la bbox
+    planned = []
+    if _LAST_PLANNED_SITES:
+        for s in _LAST_PLANNED_SITES:
+            if (req.min_lat <= s["lat"] <= req.max_lat and 
+                req.min_lon <= s["lon"] <= req.max_lon):
+                planned.append({
+                    "site_id": s["site_id"],
+                    "lat": s["lat"],
+                    "lon": s["lon"],
+                    "pci": s.get("assigned_pci", 0),
+                    "tac": s.get("tac", 1000),
+                })
+    
+    return {
+        "planned_sites": planned,
+        "count": len(planned),
+        "bbox": {
+            "min_lat": req.min_lat, "max_lat": req.max_lat,
+            "min_lon": req.min_lon, "max_lon": req.max_lon,
+        },
+        "message": f"{len(planned)} sites planifiés dans cette zone"
+    }
 
 @app.get("/health")
 def health_check():
