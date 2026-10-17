@@ -10,6 +10,7 @@ import propagation
 import hexagonal
 import urllib.parse
 import os
+import asyncio
 
 app = FastAPI(title="RF Planner - Serveur Simplifié", version="1.0.0")
 
@@ -1000,6 +1001,216 @@ async def load_scenario(req: ScenarioLoadRequest):
         "name": scenario.get("name", "unknown"),
         "saved_at": scenario.get("saved_at", "unknown"),
     }
+
+# ==========================================
+# MODULE 7 AVANCÉ : OSM RÉEL + ÉLÉVATION + LOS
+# ==========================================
+
+class TerrainImportRequest(BaseModel):
+    min_lat: float
+    min_lon: float
+    max_lat: float
+    max_lon: float
+    mode: str = "real"  # "real" ou "demo"
+
+class LOSRequest(BaseModel):
+    site_a: str
+    site_b: str
+
+# Overpass API (OpenStreetMap)
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+
+async def fetch_osm_buildings(bbox):
+    """Récupère les bâtiments réels via Overpass API."""
+    query = f"""
+    [out:json][timeout:25];
+    (
+      way["building"]({bbox['min_lat']},{bbox['min_lon']},{bbox['max_lat']},{bbox['max_lon']});
+    );
+    out geom;
+    """
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(OVERPASS_URL, data={"data": query})
+        r.raise_for_status()
+        return r.json().get("elements", [])
+
+async def fetch_osm_forests(bbox):
+    """Récupère les forêts réelles via Overpass API."""
+    query = f"""
+    [out:json][timeout:25];
+    (
+      way["landuse"="forest"]({bbox['min_lat']},{bbox['min_lon']},{bbox['max_lat']},{bbox['max_lon']});
+      way["natural"="wood"]({bbox['min_lat']},{bbox['min_lon']},{bbox['max_lat']},{bbox['max_lon']});
+    );
+    out geom;
+    """
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(OVERPASS_URL, data={"data": query})
+        r.raise_for_status()
+        return r.json().get("elements", [])
+
+def osm_to_geojson(elements, feature_type, color, loss_db):
+    """Convertit les éléments OSM en FeatureCollection GeoJSON."""
+    features = []
+    for el in elements:
+        if el.get("type") == "way" and "geometry" in el:
+            coords = [[pt["lon"], pt["lat"]] for pt in el["geometry"]]
+            if len(coords) >= 3:
+                # Fermer le polygone
+                if coords[0] != coords[-1]:
+                    coords.append(coords[0])
+                features.append({
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": [coords]},
+                    "properties": {
+                        "type": feature_type,
+                        "loss_db": loss_db,
+                        "color": color,
+                        "osm_id": el.get("id"),
+                    }
+                })
+    return features
+
+@app.post("/api/v1/terrain-osm-real")
+async def terrain_osm_real(req: TerrainImportRequest):
+    """
+    Import OSM RÉEL (buildings + forests) via Overpass API.
+    Fallback automatique vers le mode démo si Overpass échoue.
+    """
+    bbox = {
+        "min_lat": req.min_lat,
+        "min_lon": req.min_lon,
+        "max_lat": req.max_lat,
+        "max_lon": req.max_lon,
+    }
+    
+    try:
+        print(f"📡 Import OSM réel : bbox {bbox}")
+        
+        # Récupérer buildings + forests en parallèle
+        buildings_task = fetch_osm_buildings(bbox)
+        forests_task = fetch_osm_forests(bbox)
+        buildings, forests = await asyncio.gather(buildings_task, forests_task)
+        
+        features = []
+        features.extend(osm_to_geojson(buildings, "building", "#94a3b8", 15.0))
+        features.extend(osm_to_geojson(forests, "forest", "#166534", 10.0))
+        
+        print(f"✅ OSM réel : {len(buildings)} buildings + {len(forests)} forests")
+        
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+            "count": len(features),
+            "mode": "real",
+            "message": f"OSM réel : {len(buildings)} bâtiments + {len(forests)} forêts",
+        }
+    
+    except Exception as e:
+        print(f"⚠️ Overpass API échoué : {e} → fallback démo")
+        # Fallback : mode démo
+        return await import_real_terrain(TerrainRequest(**bbox))
+
+# Open-Elevation API (élévation SRTM)
+ELEVATION_URL = "https://api.open-elevation.com/api/v1/lookup"
+
+async def fetch_elevation(lat, lon):
+    """Récupère l'élévation au point (lat, lon) via Open-Elevation."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                ELEVATION_URL,
+                json={"locations": [{"latitude": lat, "longitude": lon}]}
+            )
+            r.raise_for_status()
+            data = r.json()
+            if data.get("results"):
+                return data["results"][0].get("elevation", 0)
+    except Exception as e:
+        print(f"⚠️ Open-Elevation échoué pour ({lat}, {lon}): {e}")
+    return 0
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    """Distance Haversine en km."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return 2 * R * math.asin(math.sqrt(a))
+
+def fresnel_radius_m(d1_km, d2_km, freq_ghz):
+    """Rayon de la 1ère zone de Fresnel au point médian (en mètres)."""
+    total_km = d1_km + d2_km
+    if total_km == 0 or freq_ghz <= 0:
+        return 0
+    # Formule : r = 17.32 * sqrt((d1*d2)/(f*total)) en mètres
+    return 17.32 * math.sqrt((d1_km * d2_km) / (freq_ghz * total_km))
+
+@app.post("/api/v1/los-analysis")
+async def los_analysis(req: LOSRequest):
+    """
+    Analyse LOS entre 2 sites avec profil d'élévation + Fresnel.
+    """
+    global _LAST_PLANNED_SITES
+    
+    if not _LAST_PLANNED_SITES:
+        raise HTTPException(status_code=400, detail="Aucun site en mémoire")
+    
+    site_a = next((s for s in _LAST_PLANNED_SITES if s["site_id"] == req.site_a), None)
+    site_b = next((s for s in _LAST_PLANNED_SITES if s["site_id"] == req.site_b), None)
+    
+    if not site_a or not site_b:
+        raise HTTPException(status_code=404, detail="Site non trouvé")
+    
+    dist_km = haversine_km(site_a["lat"], site_a["lon"], site_b["lat"], site_b["lon"])
+    
+    # Récupérer élévations : A, milieu, B
+    elevations = await asyncio.gather(
+        fetch_elevation(site_a["lat"], site_a["lon"]),
+        fetch_elevation((site_a["lat"] + site_b["lat"]) / 2, (site_a["lon"] + site_b["lon"]) / 2),
+        fetch_elevation(site_b["lat"], site_b["lon"]),
+    )
+    elev_a, elev_mid, elev_b = elevations
+    
+    # Hauteurs antenne : hauteur terrain + hauteur pylône
+    hauteur_pylone = 30  # m (par défaut)
+    ant_a = elev_a + hauteur_pylone
+    ant_b = elev_b + hauteur_pylone
+    
+    # Ligne directe au milieu
+    ligne_directe = (ant_a + ant_b) / 2
+    
+    # Fresnel radius (freq 3.5 GHz)
+    fresnel_m = fresnel_radius_m(dist_km / 2, dist_km / 2, 3.5)
+    
+    # Obstruction : terrain > ligne directe - fresnel 60%
+    clearance = ligne_directe - elev_mid
+    los_ok = clearance > (0.6 * fresnel_m)
+    
+    return {
+        "site_a": {
+            "id": site_a["site_id"],
+            "lat": site_a["lat"],
+            "lon": site_a["lon"],
+            "elevation_m": elev_a,
+            "antenna_m": ant_a
+        },
+        "site_b": {
+            "id": site_b["site_id"],
+            "lat": site_b["lat"],
+            "lon": site_b["lon"],
+            "elevation_m": elev_b,
+            "antenna_m": ant_b
+        },
+        "distance_km": round(dist_km, 3),
+        "elevation_mid_m": elev_mid,
+        "line_of_sight_m": round(ligne_directe, 1),
+        "clearance_m": round(clearance, 1),
+        "fresnel_radius_m": round(fresnel_m, 1),
+        "los_ok": los_ok,
+        "status": "✅ LOS OK" if los_ok else "❌ Obstrué",
+    }
+
 
 @app.get("/health")
 def health_check():

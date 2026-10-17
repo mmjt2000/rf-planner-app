@@ -1,0 +1,464 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RF Planner - Analyse LOS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .chart-wrapper { position: relative; height: 220px; }
+        .site-marker-a { background: #06b6d4; border: 3px solid #fff; border-radius: 50%; }
+        .site-marker-b { background: #ef4444; border: 3px solid #fff; border-radius: 50%; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 h-screen flex flex-col overflow-hidden">
+
+    <!-- TOPBAR -->
+    <header class="h-14 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-4 shrink-0 z-50">
+        <div class="flex items-center gap-6">
+            <a href="index.html" class="flex items-center gap-2 text-white font-bold text-lg hover:text-cyan-400 transition">
+                <div class="w-2.5 h-2.5 bg-cyan-500 rounded-full animate-pulse"></div>
+                RF Planner
+            </a>
+            <nav class="hidden md:flex items-center gap-1 text-sm">
+                <a href="/" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Link Budget</a>
+                <a href="/pci-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">PCI / PRACH</a>
+                <a href="/neighbor.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Voisinage</a>
+                <a href="/nominal-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Nominal</a>
+                <a href="/scenario-simulator.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Simulateur</a>
+                <a href="/terrain-import.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Terrain</a>
+                <a href="/los-analysis.html" class="px-3 py-1.5 rounded-md bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 transition">📍 LOS</a>
+                <a href="/scenario-manager.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">💾 Scénarios</a>
+            </nav>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-slate-500">Projet: <span class="text-slate-300 font-medium">Chicoutimi 5G</span></span>
+        </div>
+    </header>
+
+    <!-- CONTENU -->
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Panneau Gauche -->
+        <aside class="w-[420px] bg-slate-800 border-r border-slate-700 flex flex-col overflow-y-auto shrink-0">
+            <div class="p-5 border-b border-slate-700">
+                <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                    <span class="text-cyan-400">📍</span> Analyse Line of Sight
+                </h2>
+                <p class="text-xs text-slate-400 mt-1">Vérifie si 2 sites se voient (profil terrain + Fresnel)</p>
+                <p class="text-xs text-slate-500 mt-2">
+                    <span id="sites-loaded">0</span> sites en mémoire
+                </p>
+            </div>
+
+            <div class="p-5 space-y-4 flex-1">
+
+                <!-- Sélection Site A -->
+                <div class="bg-slate-900/50 border border-cyan-500/30 rounded-lg p-3">
+                    <label class="block text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2">
+                        <span class="inline-block w-3 h-3 rounded-full bg-cyan-500 mr-1"></span>
+                        Site A (source)
+                    </label>
+                    <select id="site-a" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                        <option value="">-- Sélectionner --</option>
+                    </select>
+                </div>
+
+                <!-- Sélection Site B -->
+                <div class="bg-slate-900/50 border border-rose-500/30 rounded-lg p-3">
+                    <label class="block text-xs font-bold text-rose-400 uppercase tracking-wider mb-2">
+                        <span class="inline-block w-3 h-3 rounded-full bg-rose-500 mr-1"></span>
+                        Site B (cible)
+                    </label>
+                    <select id="site-b" class="w-full bg-slate-900 border border-slate-600 rounded-md px-3 py-2 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                        <option value="">-- Sélectionner --</option>
+                    </select>
+                </div>
+
+                <!-- Bouton Analyser -->
+                <button onclick="analyzeLOS()" id="analyze-btn"
+                    class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition shadow-lg shadow-cyan-500/20 flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                    Analyser LOS
+                </button>
+
+                <div class="text-xs text-slate-500 text-center -mt-2">
+                    💡 Ou clique directement sur 2 sites de la carte
+                </div>
+
+                <!-- Résultats -->
+                <div id="results-box" class="hidden bg-slate-900/50 border border-slate-700 rounded-lg p-4">
+                    <h3 class="text-xs font-bold text-cyan-400 uppercase mb-3">📊 Résultats</h3>
+
+                    <!-- Statut LOS -->
+                    <div id="los-status" class="text-center text-2xl font-bold mb-4 p-3 rounded-lg bg-slate-900/50">
+                        --
+                    </div>
+
+                    <!-- Détails -->
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Distance</span>
+                            <span id="res-distance" class="font-mono text-white">-- km</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Élévation milieu</span>
+                            <span id="res-elev-mid" class="font-mono text-white">-- m</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Ligne de vue</span>
+                            <span id="res-los-line" class="font-mono text-white">-- m</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Clearance</span>
+                            <span id="res-clearance" class="font-mono text-white">-- m</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Zone Fresnel</span>
+                            <span id="res-fresnel" class="font-mono text-white">-- m</span>
+                        </div>
+                    </div>
+
+                    <!-- Profil d'élévation -->
+                    <div class="mt-4">
+                        <h4 class="text-xs font-bold text-slate-400 uppercase mb-2">Profil d'élévation</h4>
+                        <div class="chart-wrapper">
+                            <canvas id="elevation-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Info -->
+                <div class="bg-amber-900/20 border border-amber-700/50 rounded-lg p-3">
+                    <div class="flex items-start gap-2">
+                        <span class="text-amber-400 text-sm">ℹ️</span>
+                        <div class="text-[11px] text-slate-300 leading-relaxed">
+                            Le calcul utilise <strong>Open-Elevation API</strong> (SRTM 30m) pour l'altitude
+                            et la <strong>zone de Fresnel</strong> (60%) pour la clearance minimale.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Carte -->
+        <main class="flex-1 relative bg-slate-950">
+            <div id="map-los" class="w-full h-full z-0"></div>
+
+            <!-- Info-bulle flottante -->
+            <div class="absolute top-4 left-4 bg-slate-800/95 backdrop-blur-md p-3 rounded-lg border border-slate-700 shadow-xl z-[1000] max-w-xs">
+                <div class="text-xs text-slate-300">
+                    <strong class="text-cyan-400">🖱️ Astuce :</strong> clique sur un site pour le sélectionner
+                </div>
+                <div id="click-status" class="text-xs text-slate-500 mt-1">Sélectionne le site A...</div>
+            </div>
+
+            <!-- Légende -->
+            <div class="absolute bottom-6 left-6 bg-slate-800/95 backdrop-blur-md p-3 rounded-lg border border-slate-700 shadow-xl z-[1000]">
+                <h4 class="text-xs font-bold text-slate-300 uppercase mb-2">Légende</h4>
+                <div class="space-y-1.5">
+                    <div class="flex items-center gap-2 text-xs text-slate-300"><div class="w-3 h-3 rounded-full bg-cyan-500"></div> Site A (sélectionné)</div>
+                    <div class="flex items-center gap-2 text-xs text-slate-300"><div class="w-3 h-3 rounded-full bg-rose-500"></div> Site B (cible)</div>
+                    <div class="flex items-center gap-2 text-xs text-slate-300"><div class="w-3 h-3 rounded-full bg-emerald-500"></div> LOS OK</div>
+                    <div class="flex items-center gap-2 text-xs text-slate-300"><div class="w-3 h-3 rounded-full bg-red-500"></div> Obstrué</div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // ============================================
+        // INITIALISATION CARTE
+        // ============================================
+        const map = L.map('map-los').setView([48.4284, -71.0656], 12);
+        L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenTopoMap contributors',
+            maxZoom: 17
+        }).addTo(map);
+
+        const sitesLayer = L.layerGroup().addTo(map);
+        const losLineLayer = L.layerGroup().addTo(map);
+
+        let allSites = [];
+        let selectedA = null;
+        let selectedB = null;
+        let elevationChart = null;
+
+        // ============================================
+        // CHARGER LES SITES
+        // ============================================
+        async function loadSites() {
+            try {
+                const r = await fetch('/api/v1/sites');
+                const d = await r.json();
+                allSites = d.sites || [];
+                document.getElementById('sites-loaded').innerText = allSites.length;
+
+                if (allSites.length === 0) {
+                    document.getElementById('click-status').innerHTML = 
+                        '<span class="text-amber-400">⚠️ Aucun site. Va sur Link Budget → Placer les sites.</span>';
+                    return;
+                }
+
+                // Remplir les dropdowns
+                const selectA = document.getElementById('site-a');
+                const selectB = document.getElementById('site-b');
+                selectA.innerHTML = '<option value="">-- Sélectionner --</option>';
+                selectB.innerHTML = '<option value="">-- Sélectionner --</option>';
+
+                allSites.forEach(s => {
+                    const optA = document.createElement('option');
+                    optA.value = s.site_id;
+                    optA.text = `${s.site_id} (PCI ${s.pci}, TAC ${s.tac})`;
+                    selectA.appendChild(optA);
+
+                    const optB = document.createElement('option');
+                    optB.value = s.site_id;
+                    optB.text = `${s.site_id} (PCI ${s.pci}, TAC ${s.tac})`;
+                    selectB.appendChild(optB);
+                });
+
+                // Dessiner les sites sur la carte
+                sitesLayer.clearLayers();
+                allSites.forEach(s => {
+                    const marker = L.circleMarker([s.lat, s.lon], {
+                        radius: 5,
+                        fillColor: '#64748b',
+                        color: '#fff',
+                        weight: 1,
+                        fillOpacity: 0.7
+                    })
+                    .bindPopup(`<b>${s.site_id}</b><br>PCI: ${s.pci}<br>TAC: ${s.tac}`)
+                    .on('click', () => handleSiteClick(s.site_id))
+                    .addTo(sitesLayer);
+                });
+
+                if (allSites.length > 0) {
+                    const bounds = L.latLngBounds(allSites.map(s => [s.lat, s.lon]));
+                    map.fitBounds(bounds, { padding: [30, 30] });
+                }
+
+            } catch (e) {
+                console.error(e);
+                document.getElementById('click-status').innerHTML = '<span class="text-rose-400">❌ Erreur API</span>';
+            }
+        }
+
+        // ============================================
+        // CLIC SUR UN SITE (carte ou dropdown)
+        // ============================================
+        function handleSiteClick(siteId) {
+            if (!selectedA) {
+                selectedA = siteId;
+                document.getElementById('site-a').value = siteId;
+                document.getElementById('click-status').innerHTML = 
+                    `<span class="text-cyan-400">✓ Site A : ${siteId}</span> · Sélectionne le site B...`;
+            } else if (!selectedB && siteId !== selectedA) {
+                selectedB = siteId;
+                document.getElementById('site-b').value = siteId;
+                document.getElementById('click-status').innerHTML = 
+                    `<span class="text-cyan-400">✓ A : ${selectedA}</span> · <span class="text-rose-400">✓ B : ${selectedB}</span> · Clique "Analyser LOS"`;
+            } else {
+                // Réinitialiser
+                selectedA = siteId;
+                selectedB = null;
+                document.getElementById('site-a').value = siteId;
+                document.getElementById('site-b').value = '';
+                document.getElementById('click-status').innerHTML = 
+                    `<span class="text-cyan-400">✓ Site A : ${siteId}</span> · Sélectionne le site B...`;
+            }
+            updateSiteColors();
+        }
+
+        // Sync dropdowns → sélection
+        document.getElementById('site-a').addEventListener('change', (e) => {
+            selectedA = e.target.value || null;
+            if (selectedA) {
+                document.getElementById('click-status').innerHTML = 
+                    `<span class="text-cyan-400">✓ Site A : ${selectedA}</span> · Sélectionne le site B...`;
+            }
+            updateSiteColors();
+        });
+
+        document.getElementById('site-b').addEventListener('change', (e) => {
+            selectedB = e.target.value || null;
+            updateSiteColors();
+        });
+
+        // Colore les sites A et B
+        function updateSiteColors() {
+            sitesLayer.eachLayer(layer => {
+                const site = allSites.find(s => 
+                    Math.abs(s.lat - layer.getLatLng().lat) < 0.0001 && 
+                    Math.abs(s.lon - layer.getLatLng().lng) < 0.0001
+                );
+                if (!site) return;
+                
+                if (site.site_id === selectedA) {
+                    layer.setStyle({ fillColor: '#06b6d4', radius: 8, weight: 2 });
+                } else if (site.site_id === selectedB) {
+                    layer.setStyle({ fillColor: '#ef4444', radius: 8, weight: 2 });
+                } else {
+                    layer.setStyle({ fillColor: '#64748b', radius: 5, weight: 1 });
+                }
+            });
+        }
+
+        // ============================================
+        // ANALYSE LOS
+        // ============================================
+        async function analyzeLOS() {
+            const siteA = document.getElementById('site-a').value;
+            const siteB = document.getElementById('site-b').value;
+
+            if (!siteA || !siteB) {
+                alert('Sélectionne 2 sites différents (A et B)');
+                return;
+            }
+            if (siteA === siteB) {
+                alert('Les sites A et B doivent être différents');
+                return;
+            }
+
+            const btn = document.getElementById('analyze-btn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Analyse en cours...';
+
+            try {
+                const r = await fetch('/api/v1/los-analysis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ site_a: siteA, site_b: siteB })
+                });
+
+                if (!r.ok) {
+                    const err = await r.json();
+                    alert(`Erreur : ${err.detail || 'Inconnu'}`);
+                    return;
+                }
+
+                const data = await r.json();
+                console.log('🔍 Response backend:', data);
+                displayResults(data);
+
+            } catch (e) {
+                console.error(e);
+                alert('Erreur réseau');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                    Analyser LOS
+                `;
+            }
+        }
+
+        // ============================================
+        // AFFICHER LES RÉSULTATS
+        // ============================================
+        function displayResults(data) {
+            document.getElementById('results-box').classList.remove('hidden');
+
+            // Statut
+            const status = document.getElementById('los-status');
+            status.innerText = data.status;
+            status.className = data.los_ok
+                ? 'text-center text-2xl font-bold mb-4 p-3 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                : 'text-center text-2xl font-bold mb-4 p-3 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/40';
+
+            // Détails
+            document.getElementById('res-distance').innerText = `${data.distance_km} km`;
+            document.getElementById('res-elev-mid').innerText = `${data.elevation_mid_m} m`;
+            document.getElementById('res-los-line').innerText = `${data.line_of_sight_m} m`;
+            document.getElementById('res-clearance').innerText = `${data.clearance_m} m`;
+            document.getElementById('res-fresnel').innerText = `${data.fresnel_radius_m} m`;
+
+            // Ligne sur la carte
+            losLineLayer.clearLayers();
+            const color = data.los_ok ? '#10b981' : '#ef4444';
+            L.polyline([
+                [data.site_a.lat, data.site_a.lon],
+                [data.site_b.lat, data.site_b.lon]
+            ], {
+                color: color,
+                weight: 4,
+                opacity: 0.9,
+                dashArray: data.los_ok ? null : '10,5'
+            }).addTo(losLineLayer)
+              .bindPopup(`<b>${data.site_a.id} → ${data.site_b.id}</b><br>${data.status}<br>${data.distance_km} km`);
+
+            // Graphique profil
+            drawElevationChart(data);
+        }
+
+        // ============================================
+        // GRAPHIQUE PROFIL D'ÉLÉVATION
+        // ============================================
+        function drawElevationChart(data) {
+            if (elevationChart) elevationChart.destroy();
+
+            const elevA = data.site_a.elevation_m;
+            const elevMid = data.elevation_mid_m;
+            const elevB = data.site_b.elevation_m;
+            const antA = data.site_a.antenna_m;
+            const antB = data.site_b.antenna_m;
+
+            const ctx = document.getElementById('elevation-chart').getContext('2d');
+            elevationChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Site A', 'Milieu', 'Site B'],
+                    datasets: [
+                        {
+                            label: 'Terrain (m)',
+                            data: [elevA, elevMid, elevB],
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 5
+                        },
+                        {
+                            label: 'Antennes (m)',
+                            data: [antA, null, antB],
+                            borderColor: '#06b6d4',
+                            backgroundColor: 'transparent',
+                            borderDash: [5, 5],
+                            pointRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: { color: '#cbd5e1', font: { size: 10 } },
+                            grid: { color: '#334155' },
+                            title: { display: true, text: 'Altitude (m)', color: '#94a3b8', font: { size: 10 } }
+                        },
+                        x: {
+                            ticks: { color: '#cbd5e1', font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#cbd5e1', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        // ============================================
+        // INIT
+        // ============================================
+        loadSites();
+    </script>
+</body>
+</html>
