@@ -11,7 +11,17 @@ import hexagonal
 import urllib.parse
 import os
 import asyncio
+from groq import Groq
 
+# Chargement de la clé Groq
+from dotenv import load_dotenv
+load_dotenv()
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+if GROQ_API_KEY:
+    print(f"✅ Groq API configurée (clé: {GROQ_API_KEY[:10]}...)")
+else:
+    print("⚠️ Groq API non configurée (pas de GROQ_API_KEY dans .env)")
 app = FastAPI(title="RF Planner - Serveur Simplifié", version="1.0.0")
 
 # CORS
@@ -1211,6 +1221,147 @@ async def los_analysis(req: LOSRequest):
         "status": "✅ LOS OK" if los_ok else "❌ Obstrué",
     }
 
+# ==========================================
+# MODULE COPILOT IA — Assistant RF Groq
+# ==========================================
+
+class CopilotRequest(BaseModel):
+    question: str
+    history: list = []  # Historique de la conversation (optionnel)
+
+@app.post("/api/v1/copilot/ask")
+async def copilot_ask(req: CopilotRequest):
+    """
+    Assistant RF IA (Groq + Llama 3.3).
+    Répond aux questions en langage naturel, avec contexte des 98 sites.
+    """
+    global _LAST_PLANNED_SITES
+    
+    if not GROQ_API_KEY:
+        return {
+            "answer": "⚠️ Groq API non configurée. Ajoute `GROQ_API_KEY` dans le fichier `.env` du projet.",
+            "source": "fallback"
+        }
+    
+    # ==========================================
+    # Construire le contexte RF
+    # ==========================================
+    n_sites = len(_LAST_PLANNED_SITES) if _LAST_PLANNED_SITES else 0
+    
+    context_parts = []
+    context_parts.append(f"Tu es un assistant expert en planification RF (2G/3G/4G/5G) pour l'outil RF Planner.")
+    context_parts.append(f"Tu réponds en français, de façon concise et professionnelle.")
+    context_parts.append("")
+    context_parts.append(f"=== ÉTAT ACTUEL DU PROJET ===")
+    context_parts.append(f"- Sites en mémoire : {n_sites}")
+    
+    if n_sites > 0:
+        # Statistiques des sites
+        pcis = [s.get("assigned_pci", 0) for s in _LAST_PLANNED_SITES]
+        tacs = [s.get("tac", 1000) for s in _LAST_PLANNED_SITES]
+        unique_pcis = len(set(pcis))
+        unique_tacs = len(set(tacs))
+        
+        context_parts.append(f"- PCI uniques : {unique_pcis}")
+        context_parts.append(f"- TACs uniques : {unique_tacs}")
+        context_parts.append(f"- Plage PCI : {min(pcis)} à {max(pcis)}")
+        
+        # Détection de conflits Mod-3 (simplifié)
+        mod3_conflicts = 0
+        for i in range(min(len(_LAST_PLANNED_SITES), 50)):
+            for j in range(i+1, min(len(_LAST_PLANNED_SITES), 50)):
+                if pcis[i] == pcis[j]:
+                    mod3_conflicts += 1
+                elif (pcis[i] % 3) == (pcis[j] % 3):
+                    mod3_conflicts += 1
+        
+                # Détection détaillée des conflits PCI (vrais voisins, seuil 2 km)
+        import math as _math
+        def _dist_km(lat1, lon1, lat2, lon2):
+            R = 6371.0
+            dlat = _math.radians(lat2 - lat1)
+            dlon = _math.radians(lon2 - lon1)
+            a = _math.sin(dlat/2)**2 + _math.cos(_math.radians(lat1)) * _math.cos(_math.radians(lat2)) * _math.sin(dlon/2)**2
+            return 2 * R * _math.asin(_math.sqrt(a))
+        
+        # Trouver les conflits réels (voisins proches avec conflit PCI)
+        real_conflicts = []
+        sites_list = _LAST_PLANNED_SITES
+        for i in range(len(sites_list)):
+            for j in range(i+1, min(len(sites_list), i+30)):  # Limiter pour perf
+                s1, s2 = sites_list[i], sites_list[j]
+                d = _dist_km(s1["lat"], s1["lon"], s2["lat"], s2["lon"])
+                if d <= 2.0:  # Voisins à moins de 2 km
+                    p1 = s1.get("assigned_pci", 0)
+                    p2 = s2.get("assigned_pci", 0)
+                    if p1 == p2:
+                        real_conflicts.append({"type": "PCI_IDENTIQUE", "sites": [s1["site_id"], s2["site_id"]], "pci": p1, "dist": round(d, 2)})
+                    elif (p1 % 3) == (p2 % 3):
+                        real_conflicts.append({"type": "MOD3", "sites": [s1["site_id"], s2["site_id"]], "pci": [p1, p2], "dist": round(d, 2)})
+                    elif (p1 % 30) == (p2 % 30):
+                        real_conflicts.append({"type": "MOD30", "sites": [s1["site_id"], s2["site_id"]], "pci": [p1, p2], "dist": round(d, 2)})
+        
+        context_parts.append(f"- Conflits PCI détectés entre voisins (<2km) : {len(real_conflicts)}")
+        if real_conflicts:
+            context_parts.append(f"=== LISTE DES CONFLITS PCI ===")
+            for c in real_conflicts[:20]:  # Max 20 pour économiser les tokens
+                if c["type"] == "PCI_IDENTIQUE":
+                    context_parts.append(f"- {c['type']}: {c['sites'][0]} et {c['sites'][1]} ont le MÊME PCI={c['pci']} (distance {c['dist']} km)")
+                else:
+                    context_parts.append(f"- {c['type']}: {c['sites'][0]} (PCI {c['pci'][0]}) et {c['sites'][1]} (PCI {c['pci'][1]}) — distance {c['dist']} km")
+        context_parts.append("")
+        context_parts.append(f"=== PREMIERS SITES ===")
+        for s in _LAST_PLANNED_SITES[:5]:
+            context_parts.append(f"- {s['site_id']}: lat={s['lat']}, lon={s['lon']}, PCI={s.get('assigned_pci', 0)}, TAC={s.get('tac', 1000)}")
+    else:
+        context_parts.append("- Aucun site en mémoire (l'utilisateur doit d'abord placer les sites)")
+    
+    context_parts.append("")
+    context_parts.append("=== RÈGLES DE RÉPONSE ===")
+    context_parts.append("- Si l'utilisateur demande combien de sites : réponds avec le nombre exact")
+    context_parts.append("- Si l'utilisateur demande un script vendor : génère-le avec les vraies données")
+    context_parts.append("- Si tu ne peux pas répondre : dis-le franchement")
+    context_parts.append("- Sois concis (max 200 mots sauf si script)")
+    
+    system_context = "\n".join(context_parts)
+    
+    # ==========================================
+    # Appel Groq API
+    # ==========================================
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        
+        messages = [{"role": "system", "content": system_context}]
+        
+        # Ajouter l'historique (max 5 derniers échanges pour économiser les tokens)
+        for msg in req.history[-10:]:
+            if msg.get("role") and msg.get("content"):
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        
+        messages.append({"role": "user", "content": req.question})
+        
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1024,
+        )
+        
+        answer = response.choices[0].message.content
+        
+        return {
+            "answer": answer,
+            "model": "llama-3.3-70b-versatile",
+            "tokens_used": response.usage.total_tokens if response.usage else 0,
+            "source": "groq"
+        }
+    
+    except Exception as e:
+        print(f"❌ Erreur Groq : {e}")
+        return {
+            "answer": f"⚠️ Erreur lors de l'appel à Groq : {str(e)}",
+            "source": "error"
+        }
 
 @app.get("/health")
 def health_check():

@@ -1,0 +1,370 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RF Planner - Copilot IA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        
+        .message-user {
+            background: linear-gradient(135deg, #06b6d4, #0891b2);
+            color: white;
+        }
+        .message-ai {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgb(51, 65, 85);
+        }
+        .typing-dot {
+            animation: blink 1.4s infinite;
+        }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes blink {
+            0%, 60%, 100% { opacity: 0.3; }
+            30% { opacity: 1; }
+        }
+        
+        .message-content pre {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 8px 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .message-content code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9em;
+        }
+        .message-content ul { margin: 8px 0; padding-left: 24px; }
+        .message-content li { margin: 4px 0; }
+        .message-content strong { color: #06b6d4; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 h-screen flex flex-col overflow-hidden">
+
+    <!-- TOPBAR -->
+    <header class="h-14 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-4 shrink-0 z-50">
+        <div class="flex items-center gap-6">
+            <a href="index.html" class="flex items-center gap-2 text-white font-bold text-lg hover:text-cyan-400 transition">
+                <div class="w-2.5 h-2.5 bg-cyan-500 rounded-full animate-pulse"></div>
+                RF Planner
+            </a>
+            <nav class="hidden md:flex items-center gap-1 text-sm">
+                <a href="/" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Link Budget</a>
+                <a href="/pci-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">PCI / PRACH</a>
+                <a href="/neighbor.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Voisinage</a>
+                <a href="/nominal-planner.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Nominal</a>
+                <a href="/scenario-simulator.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Simulateur</a>
+                <a href="/terrain-import.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">Terrain</a>
+                <a href="/los-analysis.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">📍 LOS</a>
+                <a href="/copilot.html" class="px-3 py-1.5 rounded-md bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 transition">🤖 Copilot</a>
+                <a href="/scenario-manager.html" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700 transition">💾 Scénarios</a>
+            </nav>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-slate-500">Projet: <span class="text-slate-300 font-medium">Chicoutimi 5G</span></span>
+        </div>
+    </header>
+
+    <!-- CONTENU -->
+    <div class="flex-1 flex overflow-hidden">
+
+        <!-- SIDEBAR : Suggestions -->
+        <aside class="w-[320px] bg-slate-800 border-r border-slate-700 flex flex-col overflow-y-auto shrink-0 hidden md:flex">
+            <div class="p-5 border-b border-slate-700">
+                <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                    <span class="text-cyan-400">🤖</span> RF Copilot
+                </h2>
+                <p class="text-xs text-slate-400 mt-1">Assistant IA (Llama 3.3 · Groq)</p>
+                <div class="mt-3 flex items-center gap-2 text-xs">
+                    <span class="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 rounded text-emerald-300 font-mono">
+                        <span id="sites-count">0</span> sites
+                    </span>
+                    <span class="px-2 py-0.5 bg-slate-700 rounded text-slate-400 font-mono">
+                        Llama 3.3
+                    </span>
+                </div>
+            </div>
+
+            <div class="p-5">
+                <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-3">💡 Suggestions</h3>
+                <div class="space-y-2">
+                    <button onclick="suggestQuestion('Combien de sites sont en mémoire ?')" 
+                        class="w-full text-left text-xs bg-slate-900/50 border border-slate-700 hover:border-cyan-500/50 hover:bg-slate-700/50 p-3 rounded-lg transition text-slate-300">
+                        📊 Combien de sites sont en mémoire ?
+                    </button>
+                    <button onclick="suggestQuestion('Quels sont les sites avec les conflits PCI ?')" 
+                        class="w-full text-left text-xs bg-slate-900/50 border border-slate-700 hover:border-cyan-500/50 hover:bg-slate-700/50 p-3 rounded-lg transition text-slate-300">
+                        ⚠️ Quels sites ont des conflits PCI ?
+                    </button>
+                    <button onclick="suggestQuestion('Génère un script Huawei pour configurer les premiers sites')" 
+                        class="w-full text-left text-xs bg-slate-900/50 border border-slate-700 hover:border-cyan-500/50 hover:bg-slate-700/50 p-3 rounded-lg transition text-slate-300">
+                        🔧 Script Huawei pour configurer
+                    </button>
+                    <button onclick="suggestQuestion('Explique-moi la différence entre Mod-3 et Mod-30')" 
+                        class="w-full text-left text-xs bg-slate-900/50 border border-slate-700 hover:border-cyan-500/50 hover:bg-slate-700/50 p-3 rounded-lg transition text-slate-300">
+                        📚 Différence Mod-3 vs Mod-30
+                    </button>
+                    <button onclick="suggestQuestion('Quel est l\'état actuel du réseau ?')" 
+                        class="w-full text-left text-xs bg-slate-900/50 border border-slate-700 hover:border-cyan-500/50 hover:bg-slate-700/50 p-3 rounded-lg transition text-slate-300">
+                        🎯 État actuel du réseau
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-auto p-5 border-t border-slate-700">
+                <button onclick="clearChat()" 
+                    class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-lg transition">
+                    🗑️ Effacer la conversation
+                </button>
+            </div>
+        </aside>
+
+        <!-- MAIN : Chat -->
+        <main class="flex-1 flex flex-col bg-slate-950">
+
+            <!-- Messages -->
+            <div id="messages" class="flex-1 overflow-y-auto p-6 space-y-4">
+                <!-- Message de bienvenue -->
+                <div class="flex gap-3 max-w-3xl mx-auto">
+                    <div class="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-sm shrink-0">🤖</div>
+                    <div class="message-ai rounded-lg p-4 flex-1">
+                        <div class="text-xs text-cyan-400 font-bold mb-1">RF Copilot</div>
+                        <div class="message-content text-sm text-slate-200">
+                            Bonjour ! Je suis ton assistant RF IA, alimenté par <strong>Llama 3.3</strong> via Groq.
+                            <br><br>
+                            Je peux t'aider sur :
+                            <ul>
+                                <li>📊 L'état actuel du réseau (sites, PCI, TAC)</li>
+                                <li>⚠️ La détection de conflits PCI</li>
+                                <li>🔧 La génération de scripts vendors (Huawei, Ericsson...)</li>
+                                <li>📚 Des explications techniques RF</li>
+                            </ul>
+                            <br>
+                            <em class="text-slate-400 text-xs">Pose ta première question ou utilise une suggestion à gauche →</em>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input -->
+            <div class="border-t border-slate-700 bg-slate-800 p-4">
+                <div class="max-w-3xl mx-auto flex gap-3">
+                    <input type="text" id="question-input" 
+                        placeholder="Pose ta question RF..."
+                        class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none"
+                        onkeypress="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendQuestion(); }">
+                    <button onclick="sendQuestion()" id="send-btn"
+                        class="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition flex items-center gap-2 disabled:opacity-50">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                        Envoyer
+                    </button>
+                </div>
+                <div class="max-w-3xl mx-auto mt-2 text-xs text-slate-500 text-center">
+                    Entrée pour envoyer · Shift+Entrée pour nouvelle ligne · Max 200 mots par réponse
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let conversationHistory = [];
+
+        // ============================================
+        // CHARGER LE NOMBRE DE SITES
+        // ============================================
+        async function loadSitesCount() {
+            try {
+                const r = await fetch('/api/v1/memory-status');
+                const d = await r.json();
+                document.getElementById('sites-count').innerText = d.planned_sites_in_memory || 0;
+            } catch (e) {
+                document.getElementById('sites-count').innerText = '?';
+            }
+        }
+
+        // ============================================
+        // SUGGESTION (clic sur un bouton)
+        // ============================================
+        function suggestQuestion(text) {
+            document.getElementById('question-input').value = text;
+            document.getElementById('question-input').focus();
+        }
+
+        // ============================================
+        // ENVOYER UNE QUESTION
+        // ============================================
+        async function sendQuestion() {
+            const input = document.getElementById('question-input');
+            const question = input.value.trim();
+            if (!question) return;
+
+            // Désactiver le bouton
+            const btn = document.getElementById('send-btn');
+            btn.disabled = true;
+
+            // Ajouter le message utilisateur
+            addMessage('user', question);
+            input.value = '';
+
+            // Ajouter le message "typing"
+            const typingId = addTyping();
+
+            try {
+                const r = await fetch('/api/v1/copilot/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question: question,
+                        history: conversationHistory
+                    })
+                });
+
+                const data = await r.json();
+
+                // Supprimer le "typing"
+                removeTyping(typingId);
+
+                // Ajouter la réponse
+                addMessage('ai', data.answer);
+
+                // Sauvegarder dans l'historique
+                conversationHistory.push({ role: 'user', content: question });
+                conversationHistory.push({ role: 'assistant', content: data.answer });
+
+                // Garder seulement les 10 derniers échanges
+                if (conversationHistory.length > 20) {
+                    conversationHistory = conversationHistory.slice(-20);
+                }
+
+            } catch (e) {
+                removeTyping(typingId);
+                addMessage('ai', `❌ Erreur : ${e.message}`);
+            } finally {
+                btn.disabled = false;
+                input.focus();
+            }
+        }
+
+        // ============================================
+        // AJOUTER UN MESSAGE
+        // ============================================
+        function addMessage(role, content) {
+            const messages = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.className = 'flex gap-3 max-w-3xl mx-auto';
+
+            if (role === 'user') {
+                div.innerHTML = `
+                    <div class="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center text-sm shrink-0">👤</div>
+                    <div class="message-user rounded-lg p-4 flex-1">
+                        <div class="text-xs font-bold mb-1">Toi</div>
+                        <div class="message-content text-sm">${escapeHtml(content)}</div>
+                    </div>
+                `;
+            } else {
+                div.innerHTML = `
+                    <div class="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-sm shrink-0">🤖</div>
+                    <div class="message-ai rounded-lg p-4 flex-1">
+                        <div class="text-xs text-cyan-400 font-bold mb-1">RF Copilot</div>
+                        <div class="message-content text-sm text-slate-200">${formatMarkdown(content)}</div>
+                    </div>
+                `;
+            }
+
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        // ============================================
+        // TYPING INDICATOR
+        // ============================================
+        function addTyping() {
+            const messages = document.getElementById('messages');
+            const id = 'typing-' + Date.now();
+            const div = document.createElement('div');
+            div.id = id;
+            div.className = 'flex gap-3 max-w-3xl mx-auto';
+            div.innerHTML = `
+                <div class="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-sm shrink-0">🤖</div>
+                <div class="message-ai rounded-lg p-4 flex-1">
+                    <div class="text-xs text-cyan-400 font-bold mb-1">RF Copilot</div>
+                    <div class="flex items-center gap-1 text-slate-400 text-sm">
+                        <span class="typing-dot">●</span>
+                        <span class="typing-dot">●</span>
+                        <span class="typing-dot">●</span>
+                        <span class="ml-2 text-xs">Réflexion...</span>
+                    </div>
+                </div>
+            `;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+            return id;
+        }
+
+        function removeTyping(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        }
+
+        // ============================================
+        // HELPERS
+        // ============================================
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatMarkdown(text) {
+            let html = escapeHtml(text);
+            
+            // Code blocks (```...```)
+            html = html.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
+            
+            // Inline code (`...`)
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // Bold (**...**)
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            
+            // Line breaks
+            html = html.replace(/\n/g, '<br>');
+            
+            return html;
+        }
+
+        function clearChat() {
+            conversationHistory = [];
+            const messages = document.getElementById('messages');
+            messages.innerHTML = `
+                <div class="flex gap-3 max-w-3xl mx-auto">
+                    <div class="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-sm shrink-0">🤖</div>
+                    <div class="message-ai rounded-lg p-4 flex-1">
+                        <div class="text-xs text-cyan-400 font-bold mb-1">RF Copilot</div>
+                        <div class="message-content text-sm text-slate-200">
+                            Conversation réinitialisée. Pose ta première question !
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ============================================
+        // INIT
+        // ============================================
+        loadSitesCount();
+        document.getElementById('question-input').focus();
+    </script>
+</body>
+</html>
